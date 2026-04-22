@@ -69,7 +69,7 @@ ckpt_vol = modal.Volume.from_name("lingbot-map-ckpt", create_if_missing=True)
 
 @app.function(
     image=image,
-    gpu="A10G",
+    gpu="A100-40GB",
     volumes={"/ckpt": ckpt_vol},
     timeout=60 * 30,
 )
@@ -79,6 +79,8 @@ def reconstruct(
     fps: int,
     conf_percentile: float,
     mode: str,
+    window_size: int,
+    overlap_size: int,
 ) -> dict:
     import os
     import subprocess
@@ -124,6 +126,8 @@ def reconstruct(
         "--fps", str(fps),
         "--conf_percentile", str(conf_percentile),
         "--mode", mode,
+        "--window_size", str(window_size),
+        "--overlap_size", str(overlap_size),
     ]
     print("Running:", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -148,6 +152,8 @@ def main(
     fps: int = 10,
     conf_percentile: float = 50.0,
     mode: str = "streaming",
+    window_size: int = 64,
+    overlap_size: int = 16,
 ):
     video_path = Path(video)
     if not video_path.exists():
@@ -162,6 +168,8 @@ def main(
         fps=fps,
         conf_percentile=conf_percentile,
         mode=mode,
+        window_size=window_size,
+        overlap_size=overlap_size,
     )
 
     print("\n=== Remote logs ===")
