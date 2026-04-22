@@ -41,7 +41,7 @@ def _build_model_args(cli):
     a.num_scale_frames = 8
     a.kv_cache_sliding_window = 64
     a.camera_num_iterations = 4
-    a.use_sdpa = False
+    a.use_sdpa = True  # PyTorch SDPA; avoids FlashInfer install
     a.model_path = cli.model_path
     return a
 
