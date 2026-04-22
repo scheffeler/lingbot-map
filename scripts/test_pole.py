@@ -94,6 +94,8 @@ def main():
     p.add_argument("--stride", type=int, default=1)
     p.add_argument("--window_size", type=int, default=64)
     p.add_argument("--overlap_size", type=int, default=16)
+    p.add_argument("--downsample", type=int, default=1,
+                   help="Keep every Nth point after confidence filtering (1 = keep all)")
     cli = p.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -179,6 +181,13 @@ def main():
     keep = (conf_flat >= thresh) & (conf_flat > 1e-5)
     verts_k = verts[keep]
     colors_k = colors[keep]
+
+    if cli.downsample > 1:
+        rng = np.random.default_rng(0)
+        keep_idx = rng.choice(verts_k.shape[0], size=verts_k.shape[0] // cli.downsample, replace=False)
+        verts_k = verts_k[keep_idx]
+        colors_k = colors_k[keep_idx]
+        print(f"Downsampled to {verts_k.shape[0]:,} points (every {cli.downsample}th)")
 
     total = verts.shape[0]
     kept = verts_k.shape[0]
