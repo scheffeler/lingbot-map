@@ -26,7 +26,49 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from demo import load_images, load_model, postprocess, prepare_for_visualization
+from demo import load_model, postprocess, prepare_for_visualization
+from lingbot_map.utils.load_fn import load_and_preprocess_images
+import cv2
+import glob as _glob
+from tqdm.auto import tqdm
+
+
+def load_images_pole(video_path, fps, crop_mode, image_size=518, patch_size=14):
+    """Extract frames from a video and preprocess with configurable crop/pad mode.
+
+    Same frame-extraction logic as demo.load_images, but lets us pass
+    mode="pad" for portrait captures so the full pole stays in frame.
+    """
+    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    out_dir = os.path.join(os.path.dirname(video_path), f"{video_name}_frames")
+    os.makedirs(out_dir, exist_ok=True)
+
+    cap = cv2.VideoCapture(video_path)
+    src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    interval = max(1, round(src_fps / fps))
+    idx, saved = 0, []
+    pbar = tqdm(total=total_frames, desc="Extracting frames", unit="frame")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if idx % interval == 0:
+            path = os.path.join(out_dir, f"{len(saved):06d}.jpg")
+            cv2.imwrite(path, frame)
+            saved.append(path)
+        idx += 1
+        pbar.update(1)
+    pbar.close()
+    cap.release()
+    print(f"Extracted {len(saved)} frames from video (interval={interval}, mode={crop_mode})")
+
+    images = load_and_preprocess_images(
+        saved, mode=crop_mode, image_size=image_size, patch_size=patch_size,
+    )
+    h, w = images.shape[-2:]
+    print(f"Preprocessed to {w}x{h} using {crop_mode} mode")
+    return images, saved
 
 
 def _build_model_args(cli):
@@ -96,19 +138,19 @@ def main():
     p.add_argument("--overlap_size", type=int, default=16)
     p.add_argument("--downsample", type=int, default=1,
                    help="Keep every Nth point after confidence filtering (1 = keep all)")
+    p.add_argument("--crop_mode", choices=["crop", "pad"], default="pad",
+                   help="pad: preserve full aspect ratio (default; best for portrait pole captures). "
+                        "crop: match demo.py behavior; may chop off pole top on portrait video.")
     cli = p.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
     t0 = time.time()
-    images, paths, _ = load_images(
+    images, paths = load_images_pole(
         video_path=cli.video_path,
         fps=cli.fps,
-        first_k=cli.first_k,
-        stride=cli.stride,
-        image_size=518,
-        patch_size=14,
+        crop_mode=cli.crop_mode,
     )
     print(f"Loaded {len(paths)} frames in {time.time()-t0:.1f}s")
 

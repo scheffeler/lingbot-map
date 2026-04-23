@@ -82,6 +82,7 @@ def reconstruct(
     window_size: int,
     overlap_size: int,
     downsample: int,
+    crop_mode: str,
 ) -> dict:
     import os
     import subprocess
@@ -130,6 +131,7 @@ def reconstruct(
         "--window_size", str(window_size),
         "--overlap_size", str(overlap_size),
         "--downsample", str(downsample),
+        "--crop_mode", crop_mode,
     ]
     print("Running:", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -157,6 +159,7 @@ def main(
     window_size: int = 64,
     overlap_size: int = 16,
     downsample: int = 1,
+    crop_mode: str = "pad",
 ):
     video_path = Path(video)
     if not video_path.exists():
@@ -174,6 +177,7 @@ def main(
         window_size=window_size,
         overlap_size=overlap_size,
         downsample=downsample,
+        crop_mode=crop_mode,
     )
 
     print("\n=== Remote logs ===")
