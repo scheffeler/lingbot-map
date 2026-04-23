@@ -48,6 +48,9 @@ image = (
         "tqdm",
         "onnxruntime-gpu",
         "requests",
+        "matplotlib",
+        "viser",
+        "trimesh",
     )
     .add_local_dir(
         str(REPO_ROOT),
