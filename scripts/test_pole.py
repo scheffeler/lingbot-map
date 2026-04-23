@@ -231,9 +231,19 @@ def main():
     predictions, images_cpu = postprocess(predictions, images_for_post)
     vis = prepare_for_visualization(predictions, images_cpu)
 
-    world_points = vis["world_points"]           # (S, H, W, 3)
-    conf = vis["world_points_conf"]              # (S, H, W)
-    imgs = vis["images"]                         # (S, 3, H, W) or (S, H, W, 3)
+    # Note: the shipped lingbot-map.pt is missing all point_head weights
+    # (62 keys), so vis["world_points"] is computed by a randomly-initialized
+    # head and is garbage. Unproject the (properly-loaded) depth head's
+    # output using camera extrinsics + intrinsics instead.
+    from lingbot_map.utils.geometry import unproject_depth_map_to_point_map
+    depth = vis["depth"]              # (S, H, W, 1) or (S, H, W)
+    extr = vis["extrinsic"]           # (S, 3, 4) c2w
+    intr = vis["intrinsic"]           # (S, 3, 3)
+    world_points = unproject_depth_map_to_point_map(depth, extr, intr)  # (S, H, W, 3)
+    conf = vis["depth_conf"]          # (S, H, W)
+    imgs = vis["images"]              # (S, 3, H, W) or (S, H, W, 3)
+    print(f"Reconstructed world_points from depth head: shape={world_points.shape}, "
+          f"depth range p5/p95={np.percentile(depth, 5):.3f}/{np.percentile(depth, 95):.3f}")
 
     verts = world_points.reshape(-1, 3).astype(np.float32)
     if imgs.ndim == 4 and imgs.shape[1] == 3:
