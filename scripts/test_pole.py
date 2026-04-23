@@ -33,35 +33,51 @@ import glob as _glob
 from tqdm.auto import tqdm
 
 
-def load_images_pole(video_path, fps, crop_mode, image_size=518, patch_size=14):
-    """Extract frames from a video and preprocess with configurable crop/pad mode.
+def load_images_pole(
+    video_path=None, image_folder=None, fps=10, crop_mode="pad",
+    image_size=518, patch_size=14,
+):
+    """Load frames from video or image folder, preprocess with crop/pad mode.
 
     Same frame-extraction logic as demo.load_images, but lets us pass
     mode="pad" for portrait captures so the full pole stays in frame.
     """
-    video_name = os.path.splitext(os.path.basename(video_path))[0]
-    out_dir = os.path.join(os.path.dirname(video_path), f"{video_name}_frames")
-    os.makedirs(out_dir, exist_ok=True)
+    if (video_path is None) == (image_folder is None):
+        raise ValueError("Provide exactly one of video_path or image_folder")
 
-    cap = cv2.VideoCapture(video_path)
-    src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    interval = max(1, round(src_fps / fps))
-    idx, saved = 0, []
-    pbar = tqdm(total=total_frames, desc="Extracting frames", unit="frame")
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if idx % interval == 0:
-            path = os.path.join(out_dir, f"{len(saved):06d}.jpg")
-            cv2.imwrite(path, frame)
-            saved.append(path)
-        idx += 1
-        pbar.update(1)
-    pbar.close()
-    cap.release()
-    print(f"Extracted {len(saved)} frames from video (interval={interval}, mode={crop_mode})")
+    if video_path is not None:
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        out_dir = os.path.join(os.path.dirname(video_path), f"{video_name}_frames")
+        os.makedirs(out_dir, exist_ok=True)
+
+        cap = cv2.VideoCapture(video_path)
+        src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        interval = max(1, round(src_fps / fps))
+        idx, saved = 0, []
+        pbar = tqdm(total=total_frames, desc="Extracting frames", unit="frame")
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if idx % interval == 0:
+                path = os.path.join(out_dir, f"{len(saved):06d}.jpg")
+                cv2.imwrite(path, frame)
+                saved.append(path)
+            idx += 1
+            pbar.update(1)
+        pbar.close()
+        cap.release()
+        print(f"Extracted {len(saved)} frames from video (interval={interval}, mode={crop_mode})")
+    else:
+        exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp")
+        saved = sorted(
+            p for p in _glob.glob(os.path.join(image_folder, "*"))
+            if p.lower().endswith(exts)
+        )
+        if not saved:
+            raise ValueError(f"No images found in {image_folder}")
+        print(f"Found {len(saved)} images in {image_folder} (mode={crop_mode})")
 
     images = load_and_preprocess_images(
         saved, mode=crop_mode, image_size=image_size, patch_size=patch_size,
@@ -124,7 +140,10 @@ def write_ply_binary(path, vertices, colors):
 def main():
     p = argparse.ArgumentParser(description="Phase 0 pole reconstruction smoke test")
     p.add_argument("--model_path", required=True)
-    p.add_argument("--video_path", required=True)
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--video_path", default=None)
+    src.add_argument("--image_folder", default=None,
+                     help="Folder of image files (alternative to --video_path)")
     p.add_argument("--output", default="pole_cloud.ply")
     p.add_argument("--fps", type=int, default=10)
     p.add_argument("--conf_percentile", type=float, default=50.0,
@@ -141,6 +160,10 @@ def main():
     p.add_argument("--crop_mode", choices=["crop", "pad"], default="pad",
                    help="pad: preserve full aspect ratio (default; best for portrait pole captures). "
                         "crop: match demo.py behavior; may chop off pole top on portrait video.")
+    p.add_argument("--mask_sky", action="store_true",
+                   help="Apply sky segmentation to zero out sky-region confidence before filtering.")
+    p.add_argument("--skyseg_model_path", default="skyseg.onnx",
+                   help="Path to the sky segmentation ONNX model (auto-downloaded if missing).")
     cli = p.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -149,6 +172,7 @@ def main():
     t0 = time.time()
     images, paths = load_images_pole(
         video_path=cli.video_path,
+        image_folder=cli.image_folder,
         fps=cli.fps,
         crop_mode=cli.crop_mode,
     )
@@ -217,6 +241,16 @@ def main():
     else:
         colors_rgb = imgs
     colors = (colors_rgb.reshape(-1, 3) * 255).clip(0, 255).astype(np.uint8)
+
+    if cli.mask_sky:
+        from lingbot_map.vis.sky_segmentation import apply_sky_segmentation
+        print(f"Applying sky segmentation with model at {cli.skyseg_model_path}...")
+        conf = apply_sky_segmentation(
+            conf,
+            image_paths=paths,
+            images=imgs,
+            skyseg_model_path=cli.skyseg_model_path,
+        )
 
     conf_flat = conf.reshape(-1)
     thresh = np.percentile(conf_flat, cli.conf_percentile) if cli.conf_percentile > 0 else 0.0

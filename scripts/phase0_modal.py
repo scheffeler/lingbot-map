@@ -4,14 +4,18 @@ One-time:
     pip install modal
     modal setup
 
-Run:
+Run on your own video:
     modal run scripts/phase0_modal.py \\
         --video "C:/Users/jdsch/Downloads/IMG_0039.MOV" \\
-        --output pole_cloud.ply
+        --output pole_cloud.ply --mask-sky
+
+Run against a bundled example scene (pipeline validation):
+    modal run scripts/phase0_modal.py \\
+        --scene church --output church_cloud.ply --mask-sky
 
 The function streams stdout back to your terminal and writes the PLY
-locally when it finishes. The lingbot-map checkpoint is cached in a
-Modal Volume after the first run, so subsequent runs start in seconds.
+locally when it finishes. The lingbot-map checkpoint and skyseg model
+are cached in a Modal Volume after the first run.
 """
 
 from pathlib import Path
@@ -22,7 +26,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 app = modal.App("polevision-phase0")
 
-# CUDA 12.8 + Python 3.10 + torch 2.9.1-cu128, then repo code installed in place.
 image = (
     modal.Image.from_registry(
         "nvidia/cuda:12.8.0-devel-ubuntu22.04",
@@ -43,6 +46,8 @@ image = (
         "safetensors",
         "scipy",
         "tqdm",
+        "onnxruntime-gpu",
+        "requests",
     )
     .add_local_dir(
         str(REPO_ROOT),
@@ -74,8 +79,6 @@ ckpt_vol = modal.Volume.from_name("lingbot-map-ckpt", create_if_missing=True)
     timeout=60 * 30,
 )
 def reconstruct(
-    video_bytes: bytes,
-    video_name: str,
     fps: int,
     conf_percentile: float,
     mode: str,
@@ -83,6 +86,10 @@ def reconstruct(
     overlap_size: int,
     downsample: int,
     crop_mode: str,
+    mask_sky: bool,
+    video_bytes: bytes = b"",
+    video_name: str = "",
+    scene: str = "",
 ) -> dict:
     import os
     import subprocess
@@ -115,16 +122,17 @@ def reconstruct(
         ckpt_path = os.path.join("/ckpt", candidates[0])
         print(f"Using checkpoint: {ckpt_path}")
 
-    video_path = f"/tmp/{video_name}"
-    with open(video_path, "wb") as f:
-        f.write(video_bytes)
+    skyseg_path = "/ckpt/skyseg.onnx"
+    if mask_sky and not os.path.exists(skyseg_path):
+        from lingbot_map.vis.sky_segmentation import download_skyseg_model
+        print("Fetching skyseg.onnx (first run only)...")
+        download_skyseg_model(skyseg_path)
+        ckpt_vol.commit()
 
-    out_path = "/tmp/pole_cloud.ply"
     cmd = [
         "python", "-u", "scripts/test_pole.py",
         "--model_path", ckpt_path,
-        "--video_path", video_path,
-        "--output", out_path,
+        "--output", "/tmp/pole_cloud.ply",
         "--fps", str(fps),
         "--conf_percentile", str(conf_percentile),
         "--mode", mode,
@@ -132,7 +140,26 @@ def reconstruct(
         "--overlap_size", str(overlap_size),
         "--downsample", str(downsample),
         "--crop_mode", crop_mode,
+        "--skyseg_model_path", skyseg_path,
     ]
+    if mask_sky:
+        cmd.append("--mask_sky")
+
+    if scene:
+        folder = f"/root/lingbot-map/example/{scene}"
+        if not os.path.isdir(folder):
+            available = sorted(os.listdir("/root/lingbot-map/example"))
+            raise FileNotFoundError(
+                f"Scene {scene!r} not found under example/. Available: {available}"
+            )
+        cmd.extend(["--image_folder", folder])
+    else:
+        video_path = f"/tmp/{video_name}"
+        with open(video_path, "wb") as f:
+            f.write(video_bytes)
+        cmd.extend(["--video_path", video_path])
+
+    out_path = "/tmp/pole_cloud.ply"
     print("Running:", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
     logs = result.stdout + ("\n--- STDERR ---\n" + result.stderr if result.stderr else "")
@@ -151,7 +178,8 @@ def reconstruct(
 
 @app.local_entrypoint()
 def main(
-    video: str,
+    video: str = "",
+    scene: str = "",
     output: str = "pole_cloud.ply",
     fps: int = 10,
     conf_percentile: float = 50.0,
@@ -160,17 +188,28 @@ def main(
     overlap_size: int = 16,
     downsample: int = 1,
     crop_mode: str = "pad",
+    mask_sky: bool = False,
 ):
-    video_path = Path(video)
-    if not video_path.exists():
-        raise SystemExit(f"Video not found: {video}")
+    if bool(video) == bool(scene):
+        raise SystemExit("Provide exactly one of --video or --scene (e.g. --scene church).")
 
-    size_mb = video_path.stat().st_size / 1e6
-    print(f"Uploading {video_path.name} ({size_mb:.1f} MB) to Modal...")
+    if video:
+        video_path = Path(video)
+        if not video_path.exists():
+            raise SystemExit(f"Video not found: {video}")
+        size_mb = video_path.stat().st_size / 1e6
+        print(f"Uploading {video_path.name} ({size_mb:.1f} MB) to Modal...")
+        video_bytes = video_path.read_bytes()
+        video_name = video_path.name
+    else:
+        print(f"Running bundled scene: {scene}")
+        video_bytes = b""
+        video_name = ""
 
     result = reconstruct.remote(
-        video_bytes=video_path.read_bytes(),
-        video_name=video_path.name,
+        video_bytes=video_bytes,
+        video_name=video_name,
+        scene=scene,
         fps=fps,
         conf_percentile=conf_percentile,
         mode=mode,
@@ -178,6 +217,7 @@ def main(
         overlap_size=overlap_size,
         downsample=downsample,
         crop_mode=crop_mode,
+        mask_sky=mask_sky,
     )
 
     print("\n=== Remote logs ===")
