@@ -8,19 +8,33 @@ Zero-hardware capture. Competes with Katapult Pro, IKE GeoSpatial,
 Pointivo, SPIDA, and Osmose on labor and cost — their workflows assume
 LiDAR, RTK GNSS, or a measuring stick in frame; ours assumes a phone.
 
-## Pipeline
+## Pipeline (revised 2026-04-23 after Phase 0 findings)
 
 ```
-[1] lingbot-map streaming recon          ← exists (this repo)
-[2] Metric scale (EXIF GNSS / AR / tag)  ← NEW (Phase 1)
-[3] SAM 2 segmentation (pole + attachments)
-[4] Mask → 3D fusion (lift 2D mask into world_points)
-[5] RANSAC pole axis + ground plane
+[1] lingbot-map streaming recon       → camera poses (reliable)
+                                      → dense cloud for SCENE CONTEXT only
+                                        (ground, trees, buildings, chunky
+                                         attachments like transformer cans)
+[2] Metric scale (EXIF GNSS / AR / tag)
+[3] SAM 2 per-frame pole mask (single click, video-propagated)
+[4] Multi-view ray triangulation of mask centerline + boundary
+    → pole geometry at sub-pixel precision
+      (NOT dense-depth-derived; dense depth fails on thin poles)
+[5] RANSAC pole axis + ground plane from triangulated points
 [6] Measurements + uncertainty
-[7] DINOv2-head classifier (reuse aggregator features)
+[7] DINOv2-head classifier for pole class / attachment type
+    (reuse aggregator features from step 1)
 [8] Export (GeoJSON / KML / Katapult / SPIDAcalc)
 [9] Measurement UI (viser extension)
 ```
+
+**Why step 4 changed.** Phase 0 proved the base model's dense depth
+does not reconstruct utility poles cleanly from either walkaround or
+drive-by capture. Pole is typically ~20 cm against sky — low photometric
+texture, thin silhouette. Scale also collapses on shorter captures.
+Camera poses from the pose head are unaffected, so we keep those and
+move pole geometry onto mask triangulation, which is a classical,
+texture-independent method that works sub-pixel.
 
 ## What the base model gives us
 
@@ -88,10 +102,34 @@ Open `pole_cloud.ply` in CloudCompare / MeshLab.
 reduce `--conf_percentile`, or switch to `--mode windowed`. If still
 broken, pair with Depth-Anything-v2 before the aggregator.
 
+## Phase 0 result (2026-04-23)
+
+Ran the base model on both a 45 mph drive-by (IMG_0039.MOV) and a
+20-ft-radius 180° walkaround (IMG_3545.MP4). Both failed the "clean
+vertical pole structure" gate:
+
+- Drive-by: 19 windowed chunks produced disconnected blobs, each in
+  its own local frame. Scene extent ~5 m × 3 m × 19 m at stated units,
+  but geometry is incoherent.
+- Walkaround: fixed the `mode="crop"` preprocessing bug that was
+  chopping off the pole top (portrait video → center-crop → top 201
+  rows discarded; fix is `mode="pad"`). Even after the fix, the pole
+  does not resolve as a cylinder. Point-pick top-to-bottom measurement
+  reads 0.0156 units (would need to be ~10 m in a real scene).
+- Secondary blob detached from main blob in both runs → no single
+  coherent pole reconstruction.
+
+The pose head appears fine in both cases (roughly-correct trajectory
+shape in the cloud). Dense depth on the pole itself is the failure.
+Conclusion: pivot to mask triangulation for pole geometry, keep the
+dense cloud for scene context.
+
 ## Risks
 
-- **Thin-vertical reconstruction.** Known weak spot of feed-forward
-  MVS. This is the Phase 0 gate.
+- **Thin-vertical reconstruction.** Confirmed in Phase 0 — base model's
+  dense depth does not cleanly resolve a ~20 cm pole against sky from
+  realistic capture distances. Mitigation: mask triangulation (pipeline
+  step 4 above).
 - **Short baseline captures.** <1 m of motion kills both recon and
   Sim(3) scale recovery. Capture-app UX must enforce motion.
 - **Scale without GNSS/AR.** Diameter prior is a last resort; we
