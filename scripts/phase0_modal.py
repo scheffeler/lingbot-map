@@ -179,6 +179,73 @@ def reconstruct(
     }
 
 
+@app.function(
+    image=image,
+    volumes={"/ckpt": ckpt_vol},
+    timeout=60 * 5,
+)
+def diagnose() -> str:
+    """List checkpoint contents and compare model keys to checkpoint keys."""
+    import os, sys
+    import torch
+
+    os.chdir("/root/lingbot-map")
+    sys.path.insert(0, "/root/lingbot-map")
+
+    lines = []
+    lines.append("=== /ckpt contents ===")
+    for name in sorted(os.listdir("/ckpt")):
+        p = os.path.join("/ckpt", name)
+        if os.path.isdir(p):
+            lines.append(f"  [dir] {name}/")
+            for sub in sorted(os.listdir(p))[:20]:
+                sp = os.path.join(p, sub)
+                size = os.path.getsize(sp) if os.path.isfile(sp) else -1
+                lines.append(f"    {sub}  ({size/1e9:.3f} GB)" if size >= 0 else f"    {sub}/")
+        else:
+            size = os.path.getsize(p)
+            lines.append(f"  {name}  ({size/1e9:.3f} GB)")
+
+    ckpt_path = "/ckpt/lingbot-map.pt"
+    lines.append(f"\n=== Loading checkpoint: {ckpt_path} ===")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    sd = ckpt.get("model", ckpt)
+    lines.append(f"Top-level type: {type(ckpt).__name__}, dict keys: "
+                 f"{list(ckpt.keys())[:10] if isinstance(ckpt, dict) else 'n/a'}")
+    lines.append(f"state_dict type: {type(sd).__name__}, num tensors: {len(sd)}")
+    lines.append(f"First 5 keys: {list(sd.keys())[:5]}")
+    lines.append(f"Last 5 keys: {list(sd.keys())[-5:]}")
+
+    lines.append("\n=== Building model and checking key overlap ===")
+    from lingbot_map.models.gct_stream import GCTStream
+    model = GCTStream(
+        img_size=518, patch_size=14, enable_3d_rope=True, max_frame_num=1024,
+        kv_cache_sliding_window=64, kv_cache_scale_frames=8,
+        kv_cache_cross_frame_special=True, kv_cache_include_scale_frames=True,
+        use_sdpa=True, camera_num_iterations=4,
+    )
+    model_keys = set(model.state_dict().keys())
+    ckpt_keys = set(sd.keys())
+    missing = sorted(model_keys - ckpt_keys)
+    unexpected = sorted(ckpt_keys - model_keys)
+    lines.append(f"Model expects {len(model_keys)} tensors; ckpt has {len(ckpt_keys)}")
+    lines.append(f"Missing (in model, not in ckpt): {len(missing)}")
+    for k in missing[:80]:
+        lines.append(f"  - {k}")
+    if len(missing) > 80:
+        lines.append(f"  ... and {len(missing) - 80} more")
+    lines.append(f"Unexpected (in ckpt, not in model): {len(unexpected)}")
+    for k in unexpected[:20]:
+        lines.append(f"  + {k}")
+
+    return "\n".join(lines)
+
+
+@app.local_entrypoint()
+def diagnose_entry():
+    print(diagnose.remote())
+
+
 @app.local_entrypoint()
 def main(
     video: str = "",
