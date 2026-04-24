@@ -16,7 +16,7 @@ LiDAR, RTK GNSS, or a measuring stick in frame; ours assumes a phone.
                                         (ground, trees, buildings, chunky
                                          attachments like transformer cans)
 [2] Metric scale (EXIF GNSS / AR / tag)
-[3] SAM 2 per-frame pole mask (single click, video-propagated)
+[3] SAM 3.x (3.1 if available, else 3.0) per-frame pole mask (single click, video-propagated)
 [4] Multi-view ray triangulation of mask centerline + boundary
     → pole geometry at sub-pixel precision
       (NOT dense-depth-derived; dense depth fails on thin poles)
@@ -59,7 +59,7 @@ ambiguous by default — Phase 1 has to solve it.
 
 ## Meta-model fit (what plugs in naturally)
 
-- **SAM 2** — video-propagated segmentation from one click per object.
+- **SAM 3.x (3.1 if available, else 3.0)** — video-propagated segmentation from one click per object.
   The unlock for labor-free 2D→3D object isolation.
 - **DINOv2 features** (already computed in the aggregator) — reuse for
   pole class + attachment type via a small MLP head. Big compute win.
@@ -73,8 +73,8 @@ ambiguous by default — Phase 1 has to solve it.
 | Phase | Scope | Duration |
 |-------|-------|----------|
 | **0** | Validate lingbot-map reconstructs a pole cleanly (smoke test). | now |
-| **1** | Measurement MVP: EXIF Sim(3) solver, SAM 2 pole mask, RANSAC axis + ground, height measurement, viser "measure" panel. | 2–3 wk |
-| **2** | Classification + multi-attachment: DINOv2-head classifier, SAM 2 + Grounding-DINO for bulk attachments, uncertainty. | 3–4 wk |
+| **1** | Measurement MVP: EXIF Sim(3) solver, SAM 3.x (3.1 if available, else 3.0) pole mask, RANSAC axis + ground, height measurement, viser "measure" panel. | 2–3 wk |
+| **2** | Classification + multi-attachment: DINOv2-head classifier, SAM 3.x (3.1 if available, else 3.0) + Grounding-DINO for bulk attachments, uncertainty. | 3–4 wk |
 | **3** | Georef + export: WGS84 anchoring, GeoJSON/KML, PDF report, Katapult-compatible JSON, SPIDAcalc XML. | 2 wk |
 | **4** | Capture app + cloud: iOS/Android capture (video + ARKit/ARCore pose + GNSS); cloud worker runs pipeline; web app for interactive 3D + measurements. | ongoing |
 
@@ -104,25 +104,36 @@ broken, pair with Depth-Anything-v2 before the aggregator.
 
 ## Phase 0 result (2026-04-23)
 
-Ran the base model on both a 45 mph drive-by (IMG_0039.MOV) and a
-20-ft-radius 180° walkaround (IMG_3545.MP4). Both failed the "clean
-vertical pole structure" gate:
+**Gate: cleared.** See `Phase_0_learnings.md` for the full write-up.
 
-- Drive-by: 19 windowed chunks produced disconnected blobs, each in
-  its own local frame. Scene extent ~5 m × 3 m × 19 m at stated units,
-  but geometry is incoherent.
-- Walkaround: fixed the `mode="crop"` preprocessing bug that was
-  chopping off the pole top (portrait video → center-crop → top 201
-  rows discarded; fix is `mode="pad"`). Even after the fix, the pole
-  does not resolve as a cylinder. Point-pick top-to-bottom measurement
-  reads 0.0156 units (would need to be ~10 m in a real scene).
-- Secondary blob detached from main blob in both runs → no single
-  coherent pole reconstruction.
+Short version: after fixing a shipped-checkpoint bug (lingbot-map.pt
+is missing all 62 `point_head.*` weights, so we now unproject from the
+depth head instead), the base model produces clean reconstructions on
+the bundled `example/church` scene and a metric-ish scene around
+captured pole walkarounds. Thin pole shafts still don't resolve as
+crisp cylinders via dense depth alone — expected architectural
+limitation, addressed by the Phase 1 mask-triangulation approach.
 
-The pose head appears fine in both cases (roughly-correct trajectory
-shape in the cloud). Dense depth on the pole itself is the failure.
-Conclusion: pivot to mask triangulation for pole geometry, keep the
-dense cloud for scene context.
+## Phase 1 — mask triangulation (next)
+
+Architecture:
+
+1. **Reconstruction primitive** = lingbot-map (depth head unprojection,
+   poses from pose head). Already validated.
+2. **Pole segmentation** = SAM 3.x (3.1 preferred if released at
+   implementation time, otherwise 3.0). Single click on one frame,
+   video-propagated to all frames.
+3. **Pole geometry** = multi-view ray triangulation of the SAM mask
+   centerline using the lingbot-map camera poses. Sub-pixel, texture-
+   independent, handles thin verticals that dense MVS can't.
+4. **Axis + ground plane** = RANSAC on the triangulated points.
+5. **Measurements** = height, lean, attachment heights, approximate
+   diameter at defined points.
+
+First task for Phase 1: pose-verification script that exports
+lingbot-map extrinsics from a walkaround run and plots the camera
+trajectory to confirm the arc shape is usable before building
+triangulation on top.
 
 ## Risks
 
@@ -152,3 +163,5 @@ dense cloud for scene context.
   cloud building. Our `test_pole.py` mirrors the filtering logic
   without the `trimesh` dependency.
 - `scripts/test_pole.py` — Phase 0 entrypoint.
+- `scripts/phase0_modal.py` — cloud GPU runner (A100-40GB on Modal).
+- `Phase_0_learnings.md` — full Phase 0 post-mortem.
