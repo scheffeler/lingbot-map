@@ -299,6 +299,16 @@ def main():
     size_mb = os.path.getsize(cli.output) / 1e6
     print(f"Wrote {cli.output} ({size_mb:.1f} MB)")
 
+    poses_path = os.path.splitext(cli.output)[0] + ".poses.npz"
+    np.savez(
+        poses_path,
+        extrinsic=np.asarray(extr, dtype=np.float32),
+        intrinsic=np.asarray(intr, dtype=np.float32),
+        image_paths=np.array([os.path.basename(p) for p in paths]),
+        image_hw=np.array([images.shape[-2], images.shape[-1]], dtype=np.int32),
+    )
+    print(f"Wrote {poses_path}")
+
 
 if __name__ == "__main__":
     main()

@@ -172,8 +172,15 @@ def reconstruct(
         with open(out_path, "rb") as f:
             ply_bytes = f.read()
 
+    poses_path = os.path.splitext(out_path)[0] + ".poses.npz"
+    poses_bytes = b""
+    if os.path.exists(poses_path):
+        with open(poses_path, "rb") as f:
+            poses_bytes = f.read()
+
     return {
         "ply": ply_bytes,
+        "poses": poses_bytes,
         "logs": logs,
         "returncode": result.returncode,
     }
@@ -303,3 +310,9 @@ def main(
     out = Path(output)
     out.write_bytes(result["ply"])
     print(f"Wrote {out} ({len(result['ply']) / 1e6:.1f} MB)")
+
+    poses_bytes = result.get("poses") or b""
+    if poses_bytes:
+        poses_out = out.with_suffix("").with_suffix(".poses.npz")
+        poses_out.write_bytes(poses_bytes)
+        print(f"Wrote {poses_out} ({len(poses_bytes) / 1e3:.1f} KB)")
