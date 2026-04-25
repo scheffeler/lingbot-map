@@ -16,7 +16,7 @@ LiDAR, RTK GNSS, or a measuring stick in frame; ours assumes a phone.
                                         (ground, trees, buildings, chunky
                                          attachments like transformer cans)
 [2] Metric scale (EXIF GNSS / AR / tag)
-[3] SAM 3.x (3.1 if available, else 3.0) per-frame pole mask (single click, video-propagated)
+[3] SAM 3.1 per-frame pole mask (single click, video-propagated)
 [4] Multi-view ray triangulation of mask centerline + boundary
     → pole geometry at sub-pixel precision
       (NOT dense-depth-derived; dense depth fails on thin poles)
@@ -59,7 +59,7 @@ ambiguous by default — Phase 1 has to solve it.
 
 ## Meta-model fit (what plugs in naturally)
 
-- **SAM 3.x (3.1 if available, else 3.0)** — video-propagated segmentation from one click per object.
+- **SAM 3.1** — video-propagated segmentation from one click per object.
   The unlock for labor-free 2D→3D object isolation.
 - **DINOv2 features** (already computed in the aggregator) — reuse for
   pole class + attachment type via a small MLP head. Big compute win.
@@ -73,8 +73,8 @@ ambiguous by default — Phase 1 has to solve it.
 | Phase | Scope | Duration |
 |-------|-------|----------|
 | **0** | Validate lingbot-map reconstructs a pole cleanly (smoke test). | now |
-| **1** | Measurement MVP: EXIF Sim(3) solver, SAM 3.x (3.1 if available, else 3.0) pole mask, RANSAC axis + ground, height measurement, viser "measure" panel. | 2–3 wk |
-| **2** | Classification + multi-attachment: DINOv2-head classifier, SAM 3.x (3.1 if available, else 3.0) + Grounding-DINO for bulk attachments, uncertainty. | 3–4 wk |
+| **1** | Measurement MVP: EXIF Sim(3) solver, SAM 3.1 pole mask, RANSAC axis + ground, height measurement, viser "measure" panel. | 2–3 wk |
+| **2** | Classification + multi-attachment: DINOv2-head classifier, SAM 3.1 + Grounding-DINO for bulk attachments, uncertainty. | 3–4 wk |
 | **3** | Georef + export: WGS84 anchoring, GeoJSON/KML, PDF report, Katapult-compatible JSON, SPIDAcalc XML. | 2 wk |
 | **4** | Capture app + cloud: iOS/Android capture (video + ARKit/ARCore pose + GNSS); cloud worker runs pipeline; web app for interactive 3D + measurements. | ongoing |
 

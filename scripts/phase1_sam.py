@@ -1,9 +1,15 @@
-"""Phase 1.2: SAM 2 pole segmentation, video-propagated from a single click.
+"""Phase 1.2: SAM 3.1 pole segmentation, text-prompted video propagation.
 
-Extracts frames at the same fps as the Phase 0 reconstruction, seeds a
-single positive click at the center of a reference frame (middle of the
-clip), propagates the mask forward and backward, and writes masks.npz
-plus a 3x3 preview grid.
+Uses Meta's SAM 3.1 (released 2026-03-27) via `build_sam3_multiplex_video_predictor`.
+Prompts with a single text string (default: "utility pole") rather than
+a point click — the concept-level prompt is more robust for thin
+upright objects against sky than a center-of-frame click, and needs
+no frame-specific UX.
+
+Requires a Modal Secret named "huggingface" containing HF_TOKEN so
+the container can download the gated facebook/sam3.1 checkpoint:
+
+    modal secret create huggingface HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
 
 Run:
     modal run scripts/phase1_sam.py::main \\
@@ -11,10 +17,8 @@ Run:
         --fps 10 \\
         --output pole_masks.npz
 
-Notes on SAM version: this uses SAM 2.1 via facebookresearch/sam2, the
-latest release we can rely on at the time of writing. When SAM 3.x is
-generally available we should swap the checkpoint + config (API is
-likely similar).
+The masks.npz frame count/order matches what phase0_modal.py produces at
+the same --fps so poses and masks stay aligned for Phase 1.3 triangulation.
 """
 
 from pathlib import Path
@@ -42,33 +46,34 @@ image = (
         "Pillow",
         "tqdm",
         "huggingface_hub",
-        "hydra-core",
-        "iopath",
+        "matplotlib",
+        "scikit-learn",
     )
     .run_commands(
         "pip install --no-build-isolation "
-        "git+https://github.com/facebookresearch/sam2.git@main"
+        "git+https://github.com/facebookresearch/sam3.git@main"
     )
 )
 
-sam_vol = modal.Volume.from_name("sam2-ckpt", create_if_missing=True)
+hf_cache_vol = modal.Volume.from_name("hf-cache", create_if_missing=True)
+hf_secret = modal.Secret.from_name("huggingface")
 
 
 @app.function(
     image=image,
     gpu="A10G",
-    volumes={"/ckpt": sam_vol},
+    volumes={"/root/.cache/huggingface": hf_cache_vol},
+    secrets=[hf_secret],
     timeout=60 * 30,
 )
 def segment(
     video_bytes: bytes,
     video_name: str,
     fps: int,
+    text_prompt: str,
 ) -> dict:
     import io
     import os
-    import sys
-    from contextlib import redirect_stdout, redirect_stderr
 
     import cv2
     import numpy as np
@@ -80,18 +85,9 @@ def segment(
         print(msg, flush=True)
         log_buf.write(msg + "\n")
 
-    ckpt_name = "sam2.1_hiera_large.pt"
-    ckpt_path = f"/ckpt/{ckpt_name}"
-    if not os.path.exists(ckpt_path):
-        log(f"Fetching {ckpt_name} (first run only)...")
-        from huggingface_hub import hf_hub_download
-        hf_hub_download(
-            repo_id="facebook/sam2.1-hiera-large",
-            filename=ckpt_name,
-            local_dir="/ckpt",
-        )
-        sam_vol.commit()
-    log(f"Using SAM 2.1 checkpoint at {ckpt_path}")
+    if os.environ.get("HF_TOKEN"):
+        os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", os.environ["HF_TOKEN"])
+    log(f"HF auth configured: {'yes' if os.environ.get('HUGGING_FACE_HUB_TOKEN') else 'NO'}")
 
     video_path = f"/tmp/{video_name}"
     with open(video_path, "wb") as f:
@@ -111,76 +107,97 @@ def segment(
         if not ret:
             break
         if idx % interval == 0:
-            cv2.imwrite(f"{frames_dir}/{saved:06d}.jpg", frame)
+            cv2.imwrite(f"{frames_dir}/{saved}.jpg", frame)
             saved += 1
         idx += 1
     cap.release()
 
-    first = cv2.imread(f"{frames_dir}/000000.jpg")
+    first = cv2.imread(f"{frames_dir}/0.jpg")
     H, W = first.shape[:2]
-    ref_idx = saved // 2
-    click_xy = np.array([W / 2.0, H / 2.0], dtype=np.float32)
-    log(f"Extracted {saved} frames at {W}x{H}, ref frame {ref_idx}, "
-        f"center click at ({click_xy[0]:.0f}, {click_xy[1]:.0f})")
+    ref_idx = 0
+    log(f"Extracted {saved} frames at {W}x{H}, reference frame index {ref_idx}")
+    log(f"Text prompt: {text_prompt!r}")
 
-    from sam2.build_sam import build_sam2_video_predictor
-    cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-    predictor = build_sam2_video_predictor(cfg, ckpt_path, device="cuda")
+    from sam3.model_builder import build_sam3_multiplex_video_predictor
+    predictor = build_sam3_multiplex_video_predictor()
+    log("SAM 3.1 predictor ready")
 
-    with torch.inference_mode(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
-        state = predictor.init_state(video_path=frames_dir)
-        predictor.reset_state(state)
-        _, _, _ = predictor.add_new_points_or_box(
-            inference_state=state,
-            frame_idx=ref_idx,
-            obj_id=1,
-            points=click_xy[None, :],
-            labels=np.array([1], dtype=np.int32),
+    with torch.inference_mode():
+        resp = predictor.handle_request(
+            request=dict(type="start_session", resource_path=frames_dir),
         )
+        session_id = resp["session_id"]
+        log(f"session_id = {session_id}")
+
+        resp = predictor.handle_request(
+            request=dict(
+                type="add_prompt",
+                session_id=session_id,
+                frame_index=ref_idx,
+                text=text_prompt,
+            )
+        )
+        ref_out = resp["outputs"]
+        n_objs_ref = len(ref_out.get("out_obj_ids", []))
+        log(f"Reference frame {ref_idx}: SAM 3.1 found {n_objs_ref} matching object(s)")
 
         masks = np.zeros((saved, H, W), dtype=bool)
-        log("Propagating forward...")
-        for frame_idx, obj_ids, mask_logits in predictor.propagate_in_video(state):
-            m = (mask_logits[0] > 0.0).cpu().numpy().squeeze()
-            if m.shape != (H, W):
-                m = cv2.resize(m.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST).astype(bool)
-            masks[frame_idx] = m
-        log("Propagating backward...")
-        for frame_idx, obj_ids, mask_logits in predictor.propagate_in_video(state, reverse=True):
-            m = (mask_logits[0] > 0.0).cpu().numpy().squeeze()
-            if m.shape != (H, W):
-                m = cv2.resize(m.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST).astype(bool)
-            masks[frame_idx] = m
+        hit_frames = 0
+        mask_area_sum = 0.0
 
-    coverage = masks.any(axis=(1, 2))
-    pct_hit = 100.0 * coverage.sum() / saved
-    mean_area = float(masks.sum(axis=(1, 2)).mean())
-    log(f"Mask coverage: {coverage.sum()}/{saved} frames ({pct_hit:.1f}%)")
-    log(f"Mean mask area: {mean_area:.0f} px  ({100.0 * mean_area / (H * W):.2f}% of frame)")
+        for stream_resp in predictor.handle_stream_request(
+            request=dict(type="propagate_in_video", session_id=session_id),
+        ):
+            frame_idx = stream_resp["frame_index"]
+            out = stream_resp["outputs"]
+            obj_ids = out.get("out_obj_ids", np.array([]))
+            if hasattr(obj_ids, "tolist"):
+                obj_ids = obj_ids.tolist()
+            binary_masks = out.get("out_binary_masks", None)
+            if binary_masks is None or len(obj_ids) == 0:
+                continue
+            combined = np.zeros((H, W), dtype=bool)
+            for i in range(len(obj_ids)):
+                m = binary_masks[i]
+                if m.shape != (H, W):
+                    m = cv2.resize(m.astype(np.uint8), (W, H),
+                                   interpolation=cv2.INTER_NEAREST).astype(bool)
+                combined |= m
+            if combined.any():
+                masks[frame_idx] = combined
+                hit_frames += 1
+                mask_area_sum += float(combined.sum())
+
+    pct_hit = 100.0 * hit_frames / max(saved, 1)
+    mean_area = mask_area_sum / max(hit_frames, 1)
+    log(f"Mask coverage: {hit_frames}/{saved} frames ({pct_hit:.1f}%)")
+    log(f"Mean mask area (over hit frames): {mean_area:.0f} px  "
+        f"({100.0 * mean_area / (H * W):.2f}% of frame)")
 
     masks_bytes_io = io.BytesIO()
     np.savez_compressed(
         masks_bytes_io,
         masks=masks,
         ref_frame=np.int32(ref_idx),
-        click_xy=click_xy,
+        text_prompt=np.array(text_prompt),
         image_hw=np.array([H, W], dtype=np.int32),
     )
 
     preview_idxs = np.linspace(0, saved - 1, 9).astype(int)
     tiles = []
     for i in preview_idxs:
-        img = cv2.imread(f"{frames_dir}/{i:06d}.jpg")
+        img = cv2.imread(f"{frames_dir}/{i}.jpg")
         m = masks[i]
         overlay = img.copy()
         red = np.zeros_like(overlay)
         red[..., 2] = 255
         alpha = (m.astype(np.float32) * 0.5)[..., None]
         overlay = (overlay * (1 - alpha) + red * alpha).astype(np.uint8)
-        if i == ref_idx:
-            cv2.circle(overlay, tuple(click_xy.astype(int)), 10, (0, 255, 255), 2)
         cv2.putText(overlay, f"f{i}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        if i == ref_idx:
+            cv2.putText(overlay, "REF", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
         tile = cv2.resize(overlay, (W // 3, H // 3))
         tiles.append(tile)
     rows = [np.hstack(tiles[i:i + 3]) for i in range(0, 9, 3)]
@@ -202,6 +219,7 @@ def main(
     output: str = "pole_masks.npz",
     fps: int = 10,
     preview: str = "pole_masks_preview.jpg",
+    text: str = "utility pole",
 ):
     video_path = Path(video)
     if not video_path.exists():
@@ -213,6 +231,7 @@ def main(
         video_bytes=video_path.read_bytes(),
         video_name=video_path.name,
         fps=fps,
+        text_prompt=text,
     )
 
     print("\n=== Remote logs ===")
