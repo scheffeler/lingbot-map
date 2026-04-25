@@ -41,13 +41,14 @@ image = (
         extra_index_url="https://download.pytorch.org/whl/cu128",
     )
     .pip_install(
-        "numpy",
-        "opencv-python-headless",
+        "numpy<2",
+        "opencv-python-headless<4.11",
         "Pillow",
         "tqdm",
         "huggingface_hub",
         "matplotlib",
         "scikit-learn",
+        "einops",
     )
     .run_commands(
         "pip install git+https://github.com/facebookresearch/sam3.git@main"
