@@ -120,7 +120,9 @@ def segment(
     log(f"Text prompt: {text_prompt!r}")
 
     from sam3.model_builder import build_sam3_multiplex_video_predictor
-    predictor = build_sam3_multiplex_video_predictor()
+    # use_fa3=False routes through PyTorch SDPA. FA3 needs flash_attn_interface
+    # (a separate package, Hopper-only fp8 kernels) which we don't have on A10G.
+    predictor = build_sam3_multiplex_video_predictor(use_fa3=False)
 
     # Workaround for sam3 main @ c3a42ff: base predictor's start_session
     # unconditionally passes offload_state_to_cpu to model.init_state, but
