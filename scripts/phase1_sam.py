@@ -51,7 +51,8 @@ image = (
         "einops",
     )
     .run_commands(
-        "pip install git+https://github.com/facebookresearch/sam3.git@main"
+        "pip install 'sam3[notebooks,train] @ "
+        "git+https://github.com/facebookresearch/sam3.git@main'"
     )
 )
 
