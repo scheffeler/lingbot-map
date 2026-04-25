@@ -56,7 +56,7 @@ image = (
 )
 
 hf_cache_vol = modal.Volume.from_name("hf-cache", create_if_missing=True)
-hf_secret = modal.Secret.from_name("huggingface")
+hf_secret = modal.Secret.from_name("HF_TOKEN")
 
 
 @app.function(
