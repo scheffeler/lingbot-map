@@ -121,7 +121,18 @@ def segment(
 
     from sam3.model_builder import build_sam3_multiplex_video_predictor
     predictor = build_sam3_multiplex_video_predictor()
-    log("SAM 3.1 predictor ready")
+
+    # Workaround for sam3 main @ c3a42ff: base predictor's start_session
+    # unconditionally passes offload_state_to_cpu to model.init_state, but
+    # the multiplex model's init_state doesn't accept that kwarg. Drop it.
+    _orig_init_state = predictor.model.init_state
+
+    def _patched_init_state(*args, **kwargs):
+        kwargs.pop("offload_state_to_cpu", None)
+        return _orig_init_state(*args, **kwargs)
+
+    predictor.model.init_state = _patched_init_state
+    log("SAM 3.1 predictor ready (init_state patched)")
 
     with torch.inference_mode():
         resp = predictor.handle_request(
