@@ -50,8 +50,7 @@ image = (
         "scikit-learn",
     )
     .run_commands(
-        "pip install --no-build-isolation "
-        "git+https://github.com/facebookresearch/sam3.git@main"
+        "pip install git+https://github.com/facebookresearch/sam3.git@main"
     )
 )
 
