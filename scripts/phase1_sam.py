@@ -62,7 +62,7 @@ hf_secret = modal.Secret.from_name("HF_TOKEN")
 
 @app.function(
     image=image,
-    gpu="A10G",
+    gpu="A100-40GB",
     volumes={"/root/.cache/huggingface": hf_cache_vol},
     secrets=[hf_secret],
     timeout=60 * 30,
@@ -75,6 +75,7 @@ def segment(
 ) -> dict:
     import io
     import os
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     import cv2
     import numpy as np
@@ -138,7 +139,11 @@ def segment(
 
     with torch.inference_mode():
         resp = predictor.handle_request(
-            request=dict(type="start_session", resource_path=frames_dir),
+            request=dict(
+                type="start_session",
+                resource_path=frames_dir,
+                offload_video_to_cpu=True,
+            ),
         )
         session_id = resp["session_id"]
         log(f"session_id = {session_id}")
