@@ -11,3 +11,10 @@ CLAUDE.md
 .claude/
 .agents/
 skyseg.onnx
+
+# Phase 0/1 run outputs (reconstructions, masks, triangulation results)
+*.ply
+*.npz
+pole_masks_preview.jpg
+pole_triangulation.json
+*_frames/
