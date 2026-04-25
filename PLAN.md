@@ -114,7 +114,34 @@ captured pole walkarounds. Thin pole shafts still don't resolve as
 crisp cylinders via dense depth alone — expected architectural
 limitation, addressed by the Phase 1 mask-triangulation approach.
 
-## Phase 1 — mask triangulation (next)
+## Phase 1 — mask triangulation
+
+**Status (2026-04-25): 1.1, 1.2, 1.3 cleared.** End-to-end pipeline
+produces a 9.2 m pole height estimate on the IMG_3545.MP4 walkaround
+(real utility poles are 8-12 m, so within 15% pre-calibration).
+
+Sub-tasks:
+- [x] **1.1 Pose verification** — `scripts/plot_poses.py` confirmed
+      lingbot-map's pose head produces a smooth ~180 deg arc on the
+      walkaround.
+- [x] **1.2 SAM 3.1 pole mask** — text prompt `"utility pole"`, video-
+      propagated, 100% frame coverage. `scripts/phase1_sam.py`.
+- [x] **1.3 Multi-view ray triangulation** — PCA endpoints of the
+      largest connected component per frame, world-space ray bundle,
+      least-squares closest-point. `scripts/triangulate_pole.py`.
+      Output: 3D pole top + bottom + height in lingbot-map units.
+- [ ] **1.4 Metric scale (Sim(3) from GNSS)** — convert
+      lingbot-map's arbitrary scale to metres using QuickTime MOV
+      GPS metadata extracted via `ffprobe`. ~10x rough scale today
+      should become exact.
+- [ ] **1.5 Lean / diameter / attachment heights** — derive from the
+      same triangulation primitives.
+- [ ] **1.6 Uncertainty bounds** — bootstrap or per-frame residuals
+      to flag low-confidence measurements.
+- [ ] **1.7 Measurement UI** — viser extension showing the cloud,
+      camera trail, and the fitted pole axis overlaid.
+
+
 
 Architecture:
 
