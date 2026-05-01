@@ -70,7 +70,8 @@ def load_images_pole(
         cap.release()
         print(f"Extracted {len(saved)} frames from video (interval={interval}, mode={crop_mode})")
     else:
-        exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp")
+        exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp",
+                ".heic", ".heif")
         saved = sorted(
             p for p in _glob.glob(os.path.join(image_folder, "*"))
             if p.lower().endswith(exts)

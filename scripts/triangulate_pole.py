@@ -134,7 +134,25 @@ def main():
     ap.add_argument("--masks", default="pole_masks.npz")
     ap.add_argument("--poses", default="pole_walkaround.poses.npz")
     ap.add_argument("--output", default="pole_triangulation.json")
+    ap.add_argument("--gps-scale", default=None,
+                    help="JSON from scale_from_gps.py with a 'scale' field "
+                         "(model units -> metres). If passed, also report "
+                         "metric height.")
+    ap.add_argument("--object-id", type=int, default=0,
+                    help="When the masks file has shape (N_obj, S, H, W) "
+                         "from multi-object SAM tracking, pick this object "
+                         "index to triangulate. Default 0 = first object.")
     args = ap.parse_args()
+
+    metric_scale = None
+    if args.gps_scale:
+        if not os.path.exists(args.gps_scale):
+            sys.exit(f"gps-scale file not found: {args.gps_scale}")
+        scale_data = json.load(open(args.gps_scale))
+        metric_scale = float(scale_data["scale"])
+        print(f"Using GPS Sim(3) scale: {metric_scale:.6f} m / model_unit "
+              f"(residual {scale_data.get('residual_m', '?')} m, "
+              f"baseline {scale_data.get('baseline_m', '?')} m)")
 
     if not os.path.exists(args.masks):
         sys.exit(f"masks file not found: {args.masks}")
@@ -149,6 +167,22 @@ def main():
     extrinsics = poses_data["extrinsic"]
     intrinsics = poses_data["intrinsic"]
     pad_hw = poses_data["image_hw"]
+
+    # Multi-object tracking output is (N_obj, S, H, W); single-object
+    # legacy output is (S, H, W). Pick the requested object slice.
+    if masks.ndim == 4:
+        n_obj = masks.shape[0]
+        if args.object_id < 0 or args.object_id >= n_obj:
+            sys.exit(f"--object-id {args.object_id} out of range; "
+                     f"masks file has {n_obj} object(s).")
+        obj_ids = masks_data["obj_ids"] if "obj_ids" in masks_data.files else None
+        oid_label = (f" (SAM id={obj_ids[args.object_id]})"
+                     if obj_ids is not None else "")
+        print(f"Multi-object masks; using object {args.object_id}{oid_label}")
+        masks = masks[args.object_id]
+    elif masks.ndim != 3:
+        sys.exit(f"Unexpected masks shape {masks.shape}; expected (S,H,W) "
+                 f"or (N_obj,S,H,W).")
 
     S_m = masks.shape[0]
     S_p = extrinsics.shape[0]
@@ -205,8 +239,10 @@ def main():
     print(f"Pole top:    {pole_top}")
     print(f"Pole bottom: {pole_bot}")
     print(f"Axis dir:    {axis}")
-    print(f"Pole height: {height:.4f}  (model units; ~{height * 11:.2f} m if "
-          f"1 unit ~= 11 m from earlier scale check)")
+    print(f"Pole height: {height:.4f}  (model units)")
+    if metric_scale is not None:
+        height_m = height * metric_scale
+        print(f"Pole height: {height_m:.3f} m  (metric, via GPS Sim(3) scale)")
     print(f"Pole-to-camera centroid distance: {pole_to_cam:.4f}")
 
     out = {
@@ -214,6 +250,8 @@ def main():
         "pole_bottom_xyz": pole_bot.tolist(),
         "axis_direction": axis.tolist(),
         "height_model_units": height,
+        "height_m": height * metric_scale if metric_scale is not None else None,
+        "metric_scale": metric_scale,
         "frames_used": used,
         "frames_total": int(S),
         "native_hw": [int(x) for x in native_hw],

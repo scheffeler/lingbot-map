@@ -18,3 +18,21 @@ skyseg.onnx
 pole_masks_preview.jpg
 pole_triangulation.json
 *_frames/
+
+# Per-capture artifacts (one set per pole_NNN folder)
+pole_*/
+pole_*.gps.json
+pole_*.scale.json
+pole_*.gps_scale.json
+pole_*.triangulation*.json
+pole_*_masks*.html
+pole_*.masks_preview.jpg
+pole_*.html
+
+# Dashboard runtime state
+logs/
+polevision.db
+
+# Claude Design handoff bundle (one-time reference; the design is
+# already implemented in app/static/index.html)
+design_package/
