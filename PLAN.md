@@ -116,9 +116,9 @@ limitation, addressed by the Phase 1 mask-triangulation approach.
 
 ## Phase 1 — mask triangulation
 
-**Status (2026-04-25): 1.1, 1.2, 1.3 cleared.** End-to-end pipeline
-produces a 9.2 m pole height estimate on the IMG_3545.MP4 walkaround
-(real utility poles are 8-12 m, so within 15% pre-calibration).
+**Status (2026-04-25): 1.1, 1.2, 1.3 cleared. 1.4 image-set pivot in
+progress.** Phase 1.3 produces a 9.2 m pole-height estimate on
+IMG_3545.MP4 in arbitrary lingbot-map units.
 
 Sub-tasks:
 - [x] **1.1 Pose verification** — `scripts/plot_poses.py` confirmed
@@ -130,16 +130,47 @@ Sub-tasks:
       largest connected component per frame, world-space ray bundle,
       least-squares closest-point. `scripts/triangulate_pole.py`.
       Output: 3D pole top + bottom + height in lingbot-map units.
-- [ ] **1.4 Metric scale (Sim(3) from GNSS)** — convert
-      lingbot-map's arbitrary scale to metres using QuickTime MOV
-      GPS metadata extracted via `ffprobe`. ~10x rough scale today
-      should become exact.
-- [ ] **1.5 Lean / diameter / attachment heights** — derive from the
-      same triangulation primitives.
+- [~] **1.4 Image-set capture + EXIF GPS Sim(3) scale** —
+      pivoted from video to multi-photo capture. iPhone MP4 carries
+      only one container-level GPS stamp, so video can't recover scale;
+      stills carry per-image EXIF GPS, which fits Sim(3) to camera
+      centres. Implementation:
+      - `scripts/phase0_modal_imageset.py` — image-folder pose entry
+      - `scripts/phase1_sam_imageset.py` — SAM 3.1 image predictor
+        (per-image text prompt, not video propagation)
+      - `scripts/exif_gps.py` — EXIF GPS extraction
+      - `scripts/scale_from_gps.py` — Umeyama Sim(3) solver
+      - `scripts/triangulate_pole.py --gps-scale ...` — metric output
+- [~] **1.5 Lean (done) / diameter / attachment heights** —
+      `scripts/fit_pole_axis.py` replaces the two-endpoint triangulation
+      with viewing-plane intersection: each frame's mask centerline
+      back-projects to a 3D plane that contains the pole axis; the
+      axis is recovered as the right null space of the stacked plane
+      normals. More robust to partial-mask frames. On `pole_001`:
+      9.0 m height (vs 10.4 m before — 9.0 is the more honest
+      number), 15° lean from the dense-cloud ground-plane normal.
+      Diameter and attachment-height extraction still TODO.
 - [ ] **1.6 Uncertainty bounds** — bootstrap or per-frame residuals
       to flag low-confidence measurements.
-- [ ] **1.7 Measurement UI** — viser extension showing the cloud,
-      camera trail, and the fitted pole axis overlaid.
+- [x] **1.7 Measurement UI (initial)** — `scripts/visualize_pole.py`
+      loads the .ply + poses + multi-object masks + triangulation +
+      gps_scale and renders cloud, textured camera frustums, per-object
+      mask overlays, and a metric-labelled pole axis in viser. Object
+      dropdown + layer toggles. Standalone — does not require live
+      model state, only on-disk artifacts.
+
+### 1.4 capture protocol
+
+- 10-15 photos per pole, 30-45 deg apart on a 6-10 m radius.
+- Walk between shots — GPS baseline >= 5 m is what makes the Sim(3)
+  fit stable. Rotating in place gives ~0 m baseline and the solver
+  fails the sanity gate.
+- Include the pole base in at least 4 photos (needed for ground-plane
+  fitting in 1.5).
+- iPhone HEIC works (we register `pillow-heif` in the Modal images and
+  in `exif_gps.py`). "Most Compatible" mode (JPEG) also works and
+  preserves EXIF GPS the same way; pick whichever your storage
+  prefers.
 
 
 
@@ -191,4 +222,46 @@ triangulation on top.
   without the `trimesh` dependency.
 - `scripts/test_pole.py` — Phase 0 entrypoint.
 - `scripts/phase0_modal.py` — cloud GPU runner (A100-40GB on Modal).
+- `scripts/phase0_modal_imageset.py` — Phase 1.4 image-set pose entry.
+- `scripts/phase1_sam_imageset.py` — Phase 1.4 image-set SAM entry.
+- `scripts/exif_gps.py` — Phase 1.4 EXIF GPS reader.
+- `scripts/scale_from_gps.py` — Phase 1.4 Umeyama Sim(3) solver.
+- `scripts/visualize_pole.py` — Phase 1.7 viser viewer (3D scene).
+- `scripts/visualize_masks.py` — Phase 1.7 standalone HTML mask viewer.
+- `scripts/fit_pole_axis.py` — Phase 1.5 viewing-plane axis fit + lean.
 - `Phase_0_learnings.md` — full Phase 0 post-mortem.
+
+## Future: Phase 1.4b — scale-prior solver (deferred)
+
+Logged here so the architectural direction stays visible. **Do not
+implement until 1.5 / 1.7 are done** and there is an actual second prior
+to motivate the refactor.
+
+**Why we'll want this.** Phase 1.4 produces metric scale at ~5-10 %
+accuracy on a 9 m pole = ±50-100 cm. That's "rapid pre-survey" tier.
+For "engineering-grade attachment heights" (±15 cm or better), GPS
+alone isn't enough — need scale fusion across multiple priors with
+outlier rejection.
+
+**Shape of the change.**
+
+1. Define a `ScalePrior` interface (residual / sigma / name).
+2. Refactor `scale_from_gps.py` into `scale_solver.py` taking
+   `list[ScalePrior]`. The current `solve_gps_scale(...)` function
+   already returns `(scale, residual_m)` so the wrap is mechanical.
+3. Add priors as needed:
+   - `ReferenceLengthPrior` — user clicks two points + enters known
+     length (crossarm, AprilTag, tape). ±1-2 % accuracy. Needs viser
+     (Phase 1.7) for UI; until then a CLI flag covers it.
+   - `PoleDiameterPrior` — fit cylinder to triangulated boundary
+     rays, assume 25-35 cm. Weak; sanity-check only.
+   - `VlmScaleCandidatesPrior` (Phase 2) — VLM identifies stop
+     signs / vehicles / crossarms with known dims.
+4. Robust outer loop: SciPy `least_squares` with Huber loss. Drop
+   priors whose standardized residual exceeds 3σ; report accepted vs
+   rejected in the output JSON.
+5. Confidence interval via bootstrap over priors.
+
+The CLI shape `--gps-scale` on `triangulate_pole.py` is chosen with
+this in mind: tomorrow it becomes `--scale fused_scale.json` and
+nothing downstream cares which solver wrote the file.

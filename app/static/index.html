@@ -1,0 +1,3024 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PoleVision — Dashboard</title>
+<meta name="viewport" content="width=1280" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<!-- three.js + add-ons. Pinned to 0.146 — last release with the
+     `examples/js/` (UMD) build of OrbitControls + PLYLoader +
+     CSS2DRenderer. 0.147+ moved everything to ES modules
+     (`examples/jsm/`) and removed the global-scoped UMD shims, so
+     the script-tag approach stops working past that. -->
+<script src="https://unpkg.com/three@0.146.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.146.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://unpkg.com/three@0.146.0/examples/js/loaders/PLYLoader.js"></script>
+<script src="https://unpkg.com/three@0.146.0/examples/js/renderers/CSS2DRenderer.js"></script>
+<style>
+  :root {
+    --bg-0: #0e0e10;
+    --bg-1: #141417;
+    --bg-2: #1a1a1d;
+    --bg-3: #1f1f23;
+    --bg-4: #26262b;
+    --line: #2a2a30;
+    --line-2: #34343b;
+    --text: #e6e6ea;
+    --text-2: #b6b6bd;
+    --text-3: #8a8a92;
+    --text-4: #5f5f67;
+    --accent: #7a7ad6;        /* brighter cousin of #557 for dark UI */
+    --accent-2: #557;
+    --accent-soft: rgba(122, 122, 214, 0.12);
+    --accent-line: rgba(122, 122, 214, 0.35);
+    --pole: #e8c547;          /* pole-axis yellow */
+    --ok: #5fb878;
+    --ok-soft: rgba(95, 184, 120, 0.12);
+    --warn: #d9a441;
+    --warn-soft: rgba(217, 164, 65, 0.12);
+    --err: #d36464;
+    --err-soft: rgba(211, 100, 100, 0.12);
+    --info: #6aa9d6;
+    --shadow-1: 0 1px 0 rgba(255,255,255,0.02) inset, 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-2: 0 8px 30px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.03) inset;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-0); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 1.4; -webkit-font-smoothing: antialiased; }
+  body { min-width: 1280px; overflow-x: auto; }
+
+  button { font-family: inherit; font-size: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  input, textarea, select { font-family: inherit; font-size: inherit; color: inherit; }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--accent-soft); color: var(--text); }
+
+  .mono { font-family: var(--mono); font-feature-settings: "tnum" 1, "ss01" 1; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* Layout */
+  .app { min-height: 100vh; display: grid; grid-template-rows: 48px 1fr; }
+
+  /* Top bar */
+  .topbar {
+    display: grid;
+    grid-template-columns: 240px 1fr auto;
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-1);
+    height: 48px;
+    position: sticky; top: 0; z-index: 20;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 48px; border-right: 1px solid var(--line); }
+  .brand-mark {
+    width: 22px; height: 22px; position: relative; flex: 0 0 auto;
+  }
+  .brand-mark svg { display: block; }
+  .brand-name { font-weight: 600; letter-spacing: -0.01em; font-size: 13.5px; }
+  .brand-name .dot { color: var(--pole); }
+  .brand-version { font-family: var(--mono); font-size: 10.5px; color: var(--text-4); margin-left: 6px; padding: 1px 5px; border: 1px solid var(--line-2); border-radius: 3px; }
+
+  .topbar-center { padding: 0 16px; color: var(--text-4); font-family: var(--mono); font-size: 11.5px; display: flex; align-items: center; gap: 16px; }
+  .crumbs { display: flex; align-items: center; gap: 8px; }
+  .crumbs .sep { color: var(--text-4); }
+  .crumbs .now { color: var(--text-2); }
+
+  .topbar-right { display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 10px;
+    border-radius: 5px;
+    border: 1px solid var(--line-2);
+    background: var(--bg-2);
+    color: var(--text-2);
+    font-size: 12.5px; font-weight: 500;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--bg-3); color: var(--text); border-color: #3d3d45; }
+  .btn:active { background: var(--bg-2); }
+  .btn.primary {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+    box-shadow: 0 0 0 1px rgba(122,122,214,0.2), 0 1px 0 rgba(255,255,255,0.12) inset;
+  }
+  .btn.primary:hover { background: #8a8ae0; border-color: #8a8ae0; }
+  .btn.ghost { background: transparent; border-color: transparent; }
+  .btn.ghost:hover { background: var(--bg-2); border-color: var(--line-2); }
+  .btn.danger { color: var(--err); border-color: rgba(211,100,100,0.3); }
+  .btn.danger:hover { background: var(--err-soft); }
+  .btn .kbd { font-family: var(--mono); font-size: 10.5px; color: var(--text-4); padding: 1px 4px; border: 1px solid var(--line-2); border-radius: 3px; }
+  .btn.icon-only { width: 28px; padding: 0; justify-content: center; }
+
+  .icon { width: 14px; height: 14px; flex: 0 0 auto; }
+
+  /* Main grid */
+  .main { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 48px); }
+
+  /* Sidebar */
+  .sidebar { border-right: 1px solid var(--line); background: var(--bg-1); display: flex; flex-direction: column; height: calc(100vh - 48px); position: sticky; top: 48px; }
+  .side-head { padding: 14px 14px 8px; }
+  .side-title { display: flex; align-items: baseline; gap: 8px; }
+  .side-title h2 { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); margin: 0; }
+  .side-title .count { font-family: var(--mono); font-size: 11px; color: var(--text-4); }
+  .side-controls { display: flex; gap: 6px; margin-top: 10px; }
+  .seg {
+    display: inline-flex; padding: 2px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 5px;
+  }
+  .seg button {
+    height: 22px; padding: 0 8px; font-size: 11px; color: var(--text-3); border-radius: 3px;
+  }
+  .seg button.on { background: var(--bg-4); color: var(--text); }
+  .side-search {
+    margin-top: 8px; height: 28px; display: flex; align-items: center; gap: 6px;
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 8px;
+  }
+  .side-search input { background: transparent; border: 0; outline: 0; flex: 1; color: var(--text); font-size: 12px; }
+  .side-search input::placeholder { color: var(--text-4); }
+  .side-search .kbd { font-family: var(--mono); font-size: 10px; color: var(--text-4); padding: 1px 4px; border: 1px solid var(--line-2); border-radius: 3px; }
+
+  .side-list { flex: 1; overflow-y: auto; padding: 6px 8px 16px; }
+  .side-list::-webkit-scrollbar { width: 8px; }
+  .side-list::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+
+  .cap-card {
+    position: relative; padding: 10px 10px 10px 12px; border-radius: 6px;
+    cursor: pointer; border: 1px solid transparent;
+    margin-bottom: 2px;
+  }
+  .cap-card:hover { background: var(--bg-2); }
+  .cap-card.active { background: var(--bg-2); border-color: var(--line); }
+  .cap-card.active::before {
+    content: ''; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 2px; background: var(--accent); border-radius: 2px;
+  }
+  .cap-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .cap-name { font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--text); letter-spacing: -0.01em; }
+  .cap-time { font-size: 10.5px; color: var(--text-4); white-space: nowrap; }
+  .cap-stages { display: flex; gap: 4px; margin-top: 8px; align-items: center; }
+  .stage-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--bg-4); border: 1px solid var(--line-2);
+    position: relative;
+  }
+  .stage-dot.ok { background: var(--ok); border-color: var(--ok); }
+  .stage-dot.run {
+    background: var(--warn); border-color: var(--warn);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .stage-dot.err { background: var(--err); border-color: var(--err); }
+  .stage-dot.queued { background: var(--bg-3); border-color: var(--line-2); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(217,164,65,0.5); }
+    50% { box-shadow: 0 0 0 4px rgba(217,164,65,0); }
+  }
+  .cap-summary { margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--text-3); display: flex; gap: 8px; align-items: center; }
+  .cap-summary .sep { color: var(--text-4); }
+  .cap-summary.empty { color: var(--text-4); font-style: normal; }
+
+  .side-empty {
+    margin: 24px 12px; padding: 20px 14px; border: 1px dashed var(--line-2); border-radius: 8px;
+    color: var(--text-3); font-size: 12px; text-align: center;
+  }
+  .side-empty strong { color: var(--text); display: block; margin-bottom: 4px; font-weight: 600; }
+
+  .side-foot {
+    border-top: 1px solid var(--line); padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-4);
+  }
+  .side-foot .ok { color: var(--ok); }
+
+  /* Capture detail */
+  .detail { display: flex; flex-direction: column; min-width: 0; }
+
+  .detail-head {
+    border-bottom: 1px solid var(--line);
+    padding: 16px 28px 0;
+    background: var(--bg-0);
+  }
+  .detail-title { display: flex; align-items: baseline; gap: 12px; }
+  .detail-title h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; font-family: var(--mono); }
+  .detail-title .id { font-family: var(--mono); font-size: 11px; color: var(--text-4); padding: 2px 6px; border: 1px solid var(--line-2); border-radius: 4px; }
+  .detail-title .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); border: 1px solid rgba(95,184,120,0.25); font-weight: 500; }
+
+  .detail-meta { margin-top: 8px; display: flex; gap: 20px; color: var(--text-3); font-size: 12px; flex-wrap: wrap; }
+  .detail-meta .k { color: var(--text-4); margin-right: 6px; }
+  .detail-meta .v { font-family: var(--mono); color: var(--text-2); }
+
+  .tabs { display: flex; gap: 2px; margin-top: 18px; border-bottom: 0; position: relative; }
+  .tab {
+    padding: 9px 14px; font-size: 12.5px; color: var(--text-3); border-radius: 5px 5px 0 0;
+    border: 1px solid transparent; border-bottom: 0;
+    display: inline-flex; align-items: center; gap: 8px;
+    position: relative;
+  }
+  .tab .kbd { font-family: var(--mono); font-size: 10px; color: var(--text-4); padding: 0 4px; border: 1px solid var(--line-2); border-radius: 3px; }
+  .tab:hover { color: var(--text-2); }
+  .tab.on {
+    color: var(--text); background: var(--bg-2);
+    border-color: var(--line);
+  }
+  .tab.on::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--bg-2);
+  }
+
+  .detail-body { flex: 1; padding: 24px 28px 40px; min-width: 0; }
+
+  /* Pipeline */
+  .pipeline-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 16px; }
+  .pipeline-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-2); letter-spacing: -0.005em; }
+  .pipeline-head .sub { color: var(--text-4); font-size: 11.5px; font-family: var(--mono); }
+
+  .flow {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg-1);
+    position: relative; overflow: hidden;
+  }
+  .flow .stage {
+    padding: 16px 16px 14px;
+    border-right: 1px solid var(--line);
+    position: relative;
+    min-height: 156px;
+    display: flex; flex-direction: column;
+  }
+  .flow .stage:last-child { border-right: 0; }
+
+  .flow .stage::after {
+    /* arrow */
+    content: ''; position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
+    width: 12px; height: 12px;
+    background: var(--bg-1);
+    border-top: 1px solid var(--line); border-right: 1px solid var(--line);
+    transform: translateY(-50%) rotate(45deg);
+    z-index: 2;
+  }
+  .flow .stage:last-child::after { display: none; }
+
+  .stage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stage-num {
+    width: 18px; height: 18px; border-radius: 4px; background: var(--bg-3);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-3); font-weight: 500;
+  }
+  .stage-name { font-family: var(--mono); font-size: 12.5px; font-weight: 500; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text); }
+  .stage-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; padding: 2px 7px; border-radius: 999px;
+    background: var(--bg-3); border: 1px solid var(--line-2);
+    color: var(--text-3);
+  }
+  .stage-status .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); }
+  .stage-status.ok { color: var(--ok); border-color: rgba(95,184,120,0.3); background: var(--ok-soft); }
+  .stage-status.ok .pip { background: var(--ok); }
+  .stage-status.run { color: var(--warn); border-color: rgba(217,164,65,0.3); background: var(--warn-soft); }
+  .stage-status.run .pip { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+  .stage-status.err { color: var(--err); border-color: rgba(211,100,100,0.3); background: var(--err-soft); }
+  .stage-status.err .pip { background: var(--err); }
+  .stage-status.queued { color: var(--text-3); }
+
+  .stage-body { margin-top: 12px; flex: 1; }
+  .stage-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 11.5px; color: var(--text-3); }
+  .stage-row .k { color: var(--text-4); }
+  .stage-row .v { font-family: var(--mono); color: var(--text-2); }
+  .stage-bar {
+    margin-top: 8px; height: 3px; background: var(--bg-3); border-radius: 2px; overflow: hidden;
+  }
+  .stage-bar > i { display: block; height: 100%; background: var(--warn); border-radius: 2px; }
+  .stage-foot { margin-top: 12px; display: flex; gap: 6px; }
+  .stage-foot .btn { height: 26px; padding: 0 8px; font-size: 11.5px; }
+
+  .stage.is-active { background: var(--bg-2); }
+
+  .flow-actions {
+    margin-top: 14px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .flow-actions .left { display: flex; gap: 8px; align-items: center; }
+  .flow-actions .right { display: flex; gap: 8px; }
+  .pill {
+    height: 26px; padding: 0 10px; border-radius: 999px;
+    background: var(--bg-2); border: 1px solid var(--line); color: var(--text-3);
+    font-size: 11.5px; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* Log panel */
+  .log-panel {
+    margin-top: 18px; border: 1px solid var(--line); border-radius: 8px; background: #0b0b0d; overflow: hidden;
+  }
+  .log-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; background: var(--bg-1); border-bottom: 1px solid var(--line);
+  }
+  .log-head .title { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); display: flex; gap: 10px; align-items: center; }
+  .log-head .title .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .log-head .actions { display: flex; gap: 6px; }
+  .log-head .actions .btn { height: 24px; padding: 0 8px; font-size: 11px; }
+  .log-body {
+    height: 220px; overflow-y: auto;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+    padding: 10px 14px;
+    color: var(--text-2);
+  }
+  .log-body::-webkit-scrollbar { width: 8px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+  .log-line { display: grid; grid-template-columns: 90px 60px 1fr; gap: 10px; padding: 1px 0; }
+  .log-line .ts { color: var(--text-4); }
+  .log-line .lvl { font-weight: 500; }
+  .log-line .lvl.info { color: var(--info); }
+  .log-line .lvl.warn { color: var(--warn); }
+  .log-line .lvl.err { color: var(--err); }
+  .log-line .lvl.ok { color: var(--ok); }
+  .log-line .lvl.dim { color: var(--text-4); }
+  .log-line .msg { white-space: pre-wrap; word-break: break-word; }
+
+  /* Section headers */
+  .section { margin-top: 22px; }
+  .section-head {
+    display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px;
+  }
+  .section-head h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+  .section-head .right { font-size: 11px; color: var(--text-4); font-family: var(--mono); }
+
+  /* Cards generic */
+  .card { background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px; }
+  .card-pad { padding: 14px 16px; }
+
+  /* Measurements */
+  .meas-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .meas {
+    background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; position: relative;
+    display: flex; flex-direction: column; min-height: 120px;
+  }
+  .meas-top { display: flex; align-items: center; justify-content: space-between; }
+  .meas-name { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-weight: 600; }
+  .meas-info { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line-2); color: var(--text-4); font-size: 9px; display: inline-flex; align-items: center; justify-content: center; cursor: help; }
+  .meas-info:hover { color: var(--text-2); border-color: var(--text-3); }
+  .meas-val { margin-top: 8px; font-family: var(--mono); font-size: 22px; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+  .meas-val .unit { font-size: 13px; color: var(--text-3); margin-left: 4px; }
+  .meas-bound { margin-top: 4px; font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
+  .meas-bound .pm { color: var(--text-4); }
+  .meas-spark { margin-top: 10px; height: 22px; }
+  .meas-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; font-size: 11px; color: var(--text-4); font-family: var(--mono); }
+  .meas.empty { background: repeating-linear-gradient(45deg, var(--bg-1) 0 8px, #16161a 8px 16px); color: var(--text-4); }
+  .meas.empty .meas-val { color: var(--text-4); font-size: 13px; font-family: var(--sans); margin-top: 22px; }
+
+  /* Masks tab */
+  .masks-grid { display: grid; grid-template-columns: 1fr 280px; gap: 14px; }
+  .viewer {
+    background: #0a0a0c; border: 1px solid var(--line); border-radius: 8px;
+    overflow: hidden; aspect-ratio: 16 / 10; position: relative;
+  }
+  .viewer-stub {
+    position: absolute; inset: 0; display: grid; place-items: center;
+  }
+  .viewer-canvas {
+    position: absolute; inset: 0;
+  }
+  .frame-strip {
+    position: absolute; left: 14px; right: 14px; bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(20,20,23,0.92); backdrop-filter: blur(6px);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  }
+  .frame-strip .frame-num { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+  .slider {
+    flex: 1; height: 6px; background: var(--bg-3); border-radius: 3px; position: relative; cursor: pointer;
+  }
+  .slider .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 3px; }
+  .slider .knob { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: #fff; border-radius: 50%; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .slider .ticks { position: absolute; inset: 0; pointer-events: none; }
+  .slider .ticks i { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--line-2); }
+
+  .mask-panel { display: flex; flex-direction: column; gap: 14px; }
+  .panel-block { background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .panel-block h4 { margin: 0 0 10px; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-weight: 600; }
+
+  .obj-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .obj-swatch { width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,0.06); }
+  .obj-name { flex: 1; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+  .obj-conf { font-family: var(--mono); font-size: 11px; color: var(--text-4); }
+
+  /* Toggle */
+  .toggle { width: 28px; height: 16px; background: var(--bg-3); border-radius: 999px; position: relative; cursor: pointer; flex: 0 0 auto; transition: background 0.15s; }
+  .toggle .knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; background: var(--text-2); border-radius: 50%; transition: all 0.15s; }
+  .toggle.on { background: var(--accent); }
+  .toggle.on .knob { left: 14px; background: #fff; }
+
+  /* Slider in panel */
+  .slider-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+  .slider-row label { font-size: 11.5px; color: var(--text-3); width: 70px; }
+  .slider-row .slider { height: 4px; }
+  .slider-row .val { font-family: var(--mono); font-size: 11px; color: var(--text-2); width: 40px; text-align: right; }
+
+  .ref-tap-list { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto; }
+  .ref-tap {
+    display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: center;
+    padding: 6px 8px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 5px;
+    font-family: var(--mono); font-size: 11px;
+  }
+  .ref-tap .idx { color: var(--text-4); }
+  .ref-tap .coord { color: var(--text-2); }
+  .ref-tap .x { color: var(--text-4); cursor: pointer; }
+  .ref-tap .x:hover { color: var(--err); }
+
+  /* 3D tab */
+  .threed-status {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px 8px 0 0; border-bottom: 0;
+  }
+  .threed-status .left { display: flex; align-items: center; gap: 12px; }
+  .threed-status .pip { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .threed-status .url { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+  .threed-frame {
+    border: 1px solid var(--line); border-radius: 0 0 8px 8px; overflow: hidden;
+    aspect-ratio: 16 / 9; background: #08080a; position: relative;
+  }
+
+  /* Measurements expanded */
+  .meas-summary {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg-1); margin-bottom: 18px;
+    overflow: hidden;
+  }
+  .meas-summary > div {
+    padding: 14px 18px; border-right: 1px solid var(--line);
+  }
+  .meas-summary > div:last-child { border-right: 0; }
+  .meas-summary .lab { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-weight: 600; }
+  .meas-summary .big { margin-top: 6px; font-family: var(--mono); font-size: 24px; font-weight: 500; letter-spacing: -0.01em; }
+  .meas-summary .big .unit { color: var(--text-3); font-size: 13px; margin-left: 3px; }
+  .meas-summary .small { margin-top: 4px; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+
+  /* History */
+  .hist-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  }
+  .hist-table th {
+    text-align: left; padding: 10px 14px; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-3); font-weight: 600; background: var(--bg-2); border-bottom: 1px solid var(--line);
+  }
+  .hist-table td {
+    padding: 10px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11.5px; color: var(--text-2);
+    vertical-align: middle;
+  }
+  .hist-table tr:last-child td { border-bottom: 0; }
+  .hist-table tr:hover td { background: var(--bg-2); }
+  .hist-stage {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; border-radius: 4px; background: var(--bg-3); border: 1px solid var(--line-2);
+    font-size: 11px; color: var(--text-2);
+  }
+
+  /* Modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(8,8,10,0.7); backdrop-filter: blur(4px);
+    z-index: 100; display: grid; place-items: center;
+    animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal {
+    background: var(--bg-1); border: 1px solid var(--line); border-radius: 10px;
+    width: 560px; max-width: 90vw; box-shadow: var(--shadow-2);
+    animation: rise 0.2s ease;
+  }
+  @keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .modal-head { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+  .modal-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .modal-body { padding: 18px 20px; }
+  .modal-foot { padding: 14px 20px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); background: var(--bg-2); border-radius: 0 0 10px 10px; }
+
+  .drop-zone {
+    border: 1.5px dashed var(--line-2); border-radius: 8px;
+    padding: 36px 20px; text-align: center;
+    background: var(--bg-2); transition: all 0.15s;
+  }
+  .drop-zone.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop-zone .ico {
+    width: 38px; height: 38px; margin: 0 auto 10px;
+    color: var(--text-3);
+  }
+  .drop-zone strong { display: block; font-size: 13px; color: var(--text); margin-bottom: 4px; }
+  .drop-zone .sub { font-size: 11.5px; color: var(--text-4); font-family: var(--mono); }
+  .drop-zone .or { display: block; margin: 12px 0 8px; font-size: 11px; color: var(--text-4); }
+
+  .form-row { margin-top: 14px; }
+  .form-row label { display: block; font-size: 11px; letter-spacing: 0.04em; color: var(--text-3); margin-bottom: 5px; font-weight: 500; }
+  .form-row input, .form-row textarea {
+    width: 100%; background: var(--bg-2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 8px 10px; color: var(--text); font-family: var(--mono); font-size: 12px; outline: none;
+  }
+  .form-row input:focus, .form-row textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .form-row textarea { font-family: var(--sans); font-size: 12.5px; min-height: 60px; resize: vertical; }
+  .form-row .hint { margin-top: 4px; font-size: 11px; color: var(--text-4); }
+
+  /* Tests modal */
+  .test-result {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px;
+    font-family: var(--mono); font-size: 11.5px; margin-bottom: 4px;
+  }
+  .test-result .pip { width: 6px; height: 6px; border-radius: 50%; }
+  .test-result.pass .pip { background: var(--ok); }
+  .test-result.fail .pip { background: var(--err); }
+  .test-result .name { flex: 1; color: var(--text-2); }
+  .test-result .t { color: var(--text-4); font-size: 10.5px; }
+
+  /* Subtle */
+  .hr { height: 1px; background: var(--line); margin: 14px 0; }
+
+  /* Scrollbars baseline */
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+
+  /* Pole axis decorative line in top bar */
+  .pole-pulse {
+    height: 2px; background: linear-gradient(90deg, transparent, var(--pole) 40%, var(--pole) 60%, transparent);
+    width: 60px; opacity: 0.5;
+  }
+
+  /* Tooltip */
+  .tip { position: relative; }
+  .tip:hover .tip-body { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+  .tip-body {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translate(-50%, 4px);
+    background: var(--bg-4); border: 1px solid var(--line-2); color: var(--text-2);
+    font-size: 11px; padding: 6px 8px; border-radius: 4px; white-space: nowrap;
+    opacity: 0; visibility: hidden; transition: all 0.12s; pointer-events: none; z-index: 30;
+    font-family: var(--mono);
+  }
+
+  /* Reference tap dot on canvas */
+  .tap-dot {
+    position: absolute; width: 14px; height: 14px;
+    border: 2px solid var(--pole); background: rgba(232,197,71,0.25);
+    border-radius: 50%; transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.4);
+  }
+  .tap-dot::after {
+    content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 2px; height: 2px; background: var(--pole); border-radius: 50%;
+  }
+  .tap-label {
+    position: absolute; transform: translate(8px, -50%);
+    font-family: var(--mono); font-size: 10px; color: var(--pole);
+    background: rgba(11,11,13,0.9); padding: 1px 5px; border-radius: 3px;
+    border: 1px solid rgba(232,197,71,0.3);
+  }
+
+  /* Pole-axis line in viewer */
+  .pole-line { stroke: var(--pole); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.85; }
+
+  /* Decoration: grid bg in viewer */
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Marker icon helpers */
+  .ico-svg { width: 14px; height: 14px; flex: 0 0 auto; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+/* ----------------------------- Icons ----------------------------- */
+const Icon = {
+  plus: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="M8 3v10M3 8h10"/></svg>,
+  play: (p) => <svg className="icon" viewBox="0 0 16 16" fill="currentColor" {...p}><path d="M5 3.5v9l7-4.5z"/></svg>,
+  test: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="M5.5 2v3.5L3 11.5a2 2 0 0 0 2 2.5h6a2 2 0 0 0 2-2.5L10.5 5.5V2M4 2h8"/></svg>,
+  gear: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8L3.4 3.4"/></svg>,
+  search: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><circle cx="7" cy="7" r="4.5"/><path d="m13.5 13.5-3-3"/></svg>,
+  copy: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>,
+  chevron: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="m6 4 4 4-4 4"/></svg>,
+  download: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="M8 2v9M4 7l4 4 4-4M2.5 13.5h11"/></svg>,
+  ext: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="M9 3h4v4M13 3 7 9M12 9.5V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3.5"/></svg>,
+  upload: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="M12 16V4M7 9l5-5 5 5M4 18.5h16"/></svg>,
+  x: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="m4 4 8 8M12 4l-8 8"/></svg>,
+  refresh: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="M2.5 8a5.5 5.5 0 0 1 9.5-3.8M13.5 8a5.5 5.5 0 0 1-9.5 3.8M12 2v3h-3M4 14v-3h3"/></svg>,
+  pause: (p) => <svg className="icon" viewBox="0 0 16 16" fill="currentColor" {...p}><rect x="4" y="3" width="3" height="10"/><rect x="9" y="3" width="3" height="10"/></svg>,
+  filter: (p) => <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><path d="M2.5 3.5h11l-4 5v4l-3-1.5v-2.5z"/></svg>,
+};
+
+/* ----------------------------- Brand mark ----------------------------- */
+function BrandMark() {
+  // a stylized utility pole: vertical with crossarm
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <rect x="10" y="2" width="2" height="18" rx="0.5" fill="#e8c547"/>
+      <rect x="3" y="6" width="16" height="1.6" rx="0.3" fill="#e8c547" opacity="0.85"/>
+      <circle cx="4" cy="6.8" r="1" fill="#7a7ad6"/>
+      <circle cx="11" cy="6.8" r="1" fill="#7a7ad6"/>
+      <circle cx="18" cy="6.8" r="1" fill="#7a7ad6"/>
+    </svg>
+  );
+}
+
+/* ----------------------------- Mock data ----------------------------- */
+const STAGES = [
+  { id: 'exif', name: 'EXIF', desc: 'Extract photo metadata' },
+  { id: 'pose', name: 'Pose', desc: 'Camera & scene reconstruction' },
+  { id: 'sam', name: 'SAM', desc: 'Segment objects in frames' },
+  { id: 'scale', name: 'Scale', desc: 'Calibrate from reference taps' },
+  { id: 'fit', name: 'Fit', desc: 'Solve pole geometry' },
+];
+
+const initialCaptures = [
+  {
+    id: 'pole_001', created: 1714325000000 - 2 * 86400000, photoCount: 142, sizeMb: 1843,
+    notes: 'Riverside Dr — wood class 4',
+    stages: { exif: { s: 'ok', t: 1714150220000, ms: 4200, exit: 0 },
+              pose: { s: 'ok', t: 1714150480000, ms: 65300, exit: 0 },
+              sam:  { s: 'ok', t: 1714151200000, ms: 184500, exit: 0 },
+              scale:{ s: 'ok', t: 1714159820000, ms: 2300, exit: 0 },
+              fit:  { s: 'ok', t: 1714159930000, ms: 12100, exit: 0 } },
+    measurements: { height: 8.96, heightSig: 0.5, lean: 15.0, leanSig: 3, dia15: 0.28, dia15Sig: 0.04, dia60: 0.22, dia60Sig: 0.05, attach1: 7.2, attach1Sig: 0.3, attach2: 6.8, attach2Sig: 0.4 }
+  },
+  {
+    id: 'pole_002', created: 1714325000000 - 1 * 86400000, photoCount: 88, sizeMb: 1102,
+    notes: 'Maple & 4th',
+    stages: { exif: { s: 'ok', t: 1714238000000, ms: 3100 },
+              pose: { s: 'ok', t: 1714238400000, ms: 71200 },
+              sam:  { s: 'ok', t: 1714239200000, ms: 162000 },
+              scale:{ s: 'ok', t: 1714242000000, ms: 2100 },
+              fit:  { s: 'ok', t: 1714242100000, ms: 11400 } },
+    measurements: { height: 9.42, heightSig: 0.4, lean: 4.2, leanSig: 1.8, dia15: 0.31, dia15Sig: 0.03, dia60: null, attach1: 8.1, attach1Sig: 0.25 }
+  },
+  {
+    id: 'pole_003', created: 1714325000000 - 0.5 * 86400000, photoCount: 96, sizeMb: 1245,
+    notes: 'service drop, suspected lean',
+    stages: { exif: { s: 'ok', t: 1714281000000, ms: 3500 },
+              pose: { s: 'ok', t: 1714281600000, ms: 68000 },
+              sam:  { s: 'run', t: Date.now() - 64000, ms: null, progress: 0.62 },
+              scale:{ s: 'queued' },
+              fit:  { s: 'queued' } },
+    measurements: null
+  },
+  {
+    id: 'pole_004', created: 1714325000000 - 0.2 * 86400000, photoCount: 124, sizeMb: 1582,
+    notes: 'Elm Ave / behind transformer',
+    stages: { exif: { s: 'ok', t: 1714312000000, ms: 4400 },
+              pose: { s: 'err', t: 1714312500000, ms: 19400, exit: 137, err: 'COLMAP: insufficient overlap (24 of 124 frames matched)' },
+              sam:  { s: 'queued' },
+              scale:{ s: 'queued' },
+              fit:  { s: 'queued' } },
+    measurements: null
+  },
+  {
+    id: 'pole_005', created: 1714325000000 - 0.05 * 86400000, photoCount: 0, sizeMb: 0,
+    notes: '',
+    stages: { exif: { s: 'queued' }, pose: { s: 'queued' }, sam: { s: 'queued' }, scale: { s: 'queued' }, fit: { s: 'queued' } },
+    measurements: null
+  },
+];
+
+const stageMs = (n) => n == null ? '—' : n < 1000 ? `${n}ms` : n < 60000 ? `${(n/1000).toFixed(1)}s` : `${Math.floor(n/60000)}m ${Math.round((n%60000)/1000)}s`;
+
+function relTime(ts) {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000), h = Math.floor(diff/3600000), d = Math.floor(diff/86400000);
+  if (d >= 1) return d === 1 ? '1 day ago' : `${d} days ago`;
+  if (h >= 1) return h === 1 ? '1 hour ago' : `${h} hours ago`;
+  if (m >= 1) return `${m} min ago`;
+  return 'just now';
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/* ----------------------------- Capture sidebar ----------------------------- */
+function StageDots({ stages }) {
+  return (
+    <div className="cap-stages">
+      {STAGES.map((s, i) => {
+        const st = stages[s.id]?.s || 'queued';
+        const cls = st === 'ok' ? 'ok' : st === 'run' ? 'run' : st === 'err' ? 'err' : 'queued';
+        return <div key={s.id} className={`stage-dot ${cls}`} title={`${s.name}: ${st}`}/>;
+      })}
+    </div>
+  );
+}
+
+function CaptureCard({ c, active, onClick }) {
+  const m = c.measurements;
+  return (
+    <div className={`cap-card ${active ? 'active' : ''}`} onClick={onClick}>
+      <div className="cap-row">
+        <span className="cap-name">{c.id}</span>
+        <span className="cap-time">{relTime(c.created)}</span>
+      </div>
+      <StageDots stages={c.stages}/>
+      <div className={`cap-summary ${m ? '' : 'empty'}`}>
+        {m ? (
+          <>
+            <span>{m.height.toFixed(2)} m</span>
+            <span className="sep">•</span>
+            <span>{m.lean.toFixed(1)}° lean</span>
+          </>
+        ) : (
+          <span>{c.stages.pose?.s === 'err' ? 'pose failed' : 'awaiting fit'}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({ captures, activeId, setActiveId, onNew }) {
+  const [filter, setFilter] = useState('all');
+  const [q, setQ] = useState('');
+
+  const list = captures.filter(c => {
+    if (q && !c.id.toLowerCase().includes(q.toLowerCase()) && !c.notes.toLowerCase().includes(q.toLowerCase())) return false;
+    if (filter === 'running') return Object.values(c.stages).some(x => x.s === 'run');
+    if (filter === 'failed')  return Object.values(c.stages).some(x => x.s === 'err');
+    if (filter === 'done')    return Object.values(c.stages).every(x => x.s === 'ok');
+    return true;
+  });
+
+  return (
+    <aside className="sidebar">
+      <div className="side-head">
+        <div className="side-title">
+          <h2>Captures</h2>
+          <span className="count">{captures.length}</span>
+        </div>
+        <div className="side-search">
+          <Icon.search style={{color: 'var(--text-4)'}}/>
+          <input placeholder="Search captures…" value={q} onChange={e => setQ(e.target.value)}/>
+          <span className="kbd">/</span>
+        </div>
+        <div className="side-controls">
+          <div className="seg">
+            {['all','running','failed','done'].map(f =>
+              <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
+                {f[0].toUpperCase()+f.slice(1)}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="side-list">
+        {list.length === 0 ? (
+          <div className="side-empty">
+            <strong>No captures yet</strong>
+            Drop a folder of photos to begin.
+          </div>
+        ) : list.map(c =>
+          <CaptureCard key={c.id} c={c} active={c.id === activeId} onClick={() => setActiveId(c.id)}/>
+        )}
+      </div>
+
+      <div className="side-foot">
+        <span><span className="ok">●</span> backend ok</span>
+        <span>:8000</span>
+      </div>
+    </aside>
+  );
+}
+
+/* ----------------------------- Top bar ----------------------------- */
+function TopBar({ active, onNew, onTests }) {
+  return (
+    <header className="topbar">
+      <div className="brand">
+        <BrandMark/>
+        <div>
+          <span className="brand-name">Pole<span className="dot">v</span>ision</span>
+          <span className="brand-version">v0.4.2</span>
+        </div>
+      </div>
+      <div className="topbar-center">
+        <div className="crumbs">
+          <span>workspace</span>
+          <span className="sep">/</span>
+          <span>captures</span>
+          <span className="sep">/</span>
+          <span className="now mono">{active?.id || '—'}</span>
+        </div>
+      </div>
+      <div className="topbar-right">
+        <button className="btn ghost"><Icon.refresh/> Sync</button>
+        <button className="btn" onClick={onTests}><Icon.test/> Run tests</button>
+        <button className="btn primary" onClick={onNew}><Icon.plus/> New capture</button>
+        <button className="btn icon-only ghost" title="Settings"><Icon.gear/></button>
+      </div>
+    </header>
+  );
+}
+
+/* ----------------------------- Pipeline tab ----------------------------- */
+function StatusPill({ s }) {
+  if (s === 'ok')   return <span className="stage-status ok"><span className="pip"/>succeeded</span>;
+  if (s === 'run')  return <span className="stage-status run"><span className="pip"/>running</span>;
+  if (s === 'err')  return <span className="stage-status err"><span className="pip"/>failed</span>;
+  return <span className="stage-status queued"><span className="pip"/>queued</span>;
+}
+
+function StageCard({ idx, stage, info, onRun, onCancel, params, setParams }) {
+  const isActive = stage.s === 'run';
+  return (
+    <div className={`stage ${isActive ? 'is-active' : ''}`}>
+      <div className="stage-head">
+        <div style={{display:'flex', alignItems:'center', gap: 8}}>
+          <span className="stage-num">{idx+1}</span>
+          <span className="stage-name">{info.name}</span>
+        </div>
+        <StatusPill s={stage.s || 'queued'}/>
+      </div>
+      <div className="stage-body">
+        <div style={{fontSize: 11.5, color: 'var(--text-4)', marginBottom: 8}}>{info.desc}</div>
+        <div className="stage-row"><span className="k">elapsed</span><span className="v">{stage.s === 'run' ? 'running…' : stageMs(stage.ms)}</span></div>
+        <div className="stage-row"><span className="k">last run</span><span className="v">{fmtTime(stage.t)}</span></div>
+        {stage.s === 'err' ? (
+          <div className="stage-row"><span className="k">exit</span><span className="v" style={{color:'var(--err)'}}>{stage.exit}</span></div>
+        ) : (
+          <div className="stage-row"><span className="k">artifact</span><span className="v">{stage.s === 'ok' ? `${info.id}.json` : '—'}</span></div>
+        )}
+        {info.id === 'fit' && (
+          <div className="stage-row" style={{paddingTop: 6}}>
+            <span className="k">object_id</span>
+            <input
+              type="number" min="0" max="20"
+              value={params?.object_id ?? 0}
+              onChange={e => setParams?.({ ...(params || {}), object_id: parseInt(e.target.value, 10) || 0 })}
+              disabled={stage.s === 'run'}
+              style={{width: 60, height: 22, padding: '0 6px',
+                       background:'var(--bg-3)', border:'1px solid var(--line-2)',
+                       borderRadius: 3, fontFamily:'var(--mono)', fontSize: 12,
+                       color: 'var(--text)'}}/>
+          </div>
+        )}
+        {stage.s === 'run' && (
+          <div className="stage-bar"><i style={{width: `${(stage.progress || 0) * 100}%`}}/></div>
+        )}
+      </div>
+      <div className="stage-foot">
+        {stage.s === 'run' ? (
+          <button className="btn ghost danger" onClick={() => onCancel?.(info.id)}>
+            <Icon.pause/> Cancel
+          </button>
+        ) : stage.s === 'err' ? (
+          <button className="btn" onClick={() => onRun?.(info.id)}><Icon.refresh/> Re-run</button>
+        ) : stage.s === 'ok' ? (
+          <button className="btn" onClick={() => onRun?.(info.id)}><Icon.refresh/> Re-run</button>
+        ) : (
+          <button className="btn" onClick={() => onRun?.(info.id)}><Icon.play/> Run</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PipelineTab({ capture, logs, onRunAll, onRunStage, onCancelStage,
+                       stageParams, setStageParams }) {
+  const stages = capture.stages;
+  const failed = STAGES.find(s => stages[s.id]?.s === 'err');
+  const running = STAGES.find(s => stages[s.id]?.s === 'run');
+  return (
+    <>
+      <div className="pipeline-head">
+        <div>
+          <h3>Pipeline</h3>
+          <div className="sub">
+            {failed ? `failed at ${failed.name.toLowerCase()}` :
+             running ? `running ${running.name.toLowerCase()}…` :
+             STAGES.every(s => stages[s.id]?.s === 'ok') ? 'all stages complete' : 'idle'}
+          </div>
+        </div>
+        <div className="flow-actions" style={{margin: 0}}>
+          <div className="right">
+            <button className="btn primary" onClick={onRunAll}><Icon.play/> Run all</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flow">
+        {STAGES.map((info, i) =>
+          <StageCard key={info.id} idx={i} info={info}
+            stage={stages[info.id] || {s:'queued'}}
+            onRun={onRunStage}
+            onCancel={onCancelStage}
+            params={stageParams?.[info.id]}
+            setParams={(p) => setStageParams?.(info.id, p)}/>
+        )}
+      </div>
+
+      <LogPanel logs={logs} runningStage={running?.name}/>
+    </>
+  );
+}
+
+/* ----------------------------- Log panel ----------------------------- */
+function LogPanel({ logs, runningStage }) {
+  const ref = useRef(null);
+  const [autoscroll, setAutoscroll] = useState(true);
+  useEffect(() => {
+    if (autoscroll && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [logs, autoscroll]);
+  return (
+    <div className="log-panel">
+      <div className="log-head">
+        <div className="title">
+          <span className="pip"/>
+          <span>logs</span>
+          <span style={{color:'var(--text-4)'}}>·</span>
+          <span style={{color:'var(--text-3)'}}>{runningStage ? `streaming ${runningStage.toLowerCase()} via SSE` : 'most recent run'}</span>
+        </div>
+        <div className="actions">
+          <button className="btn" onClick={() => setAutoscroll(s => !s)}>
+            {autoscroll ? '◉ autoscroll' : '◯ autoscroll'}
+          </button>
+          <button className="btn"><Icon.copy/> Copy</button>
+          <button className="btn"><Icon.download/></button>
+        </div>
+      </div>
+      <div className="log-body" ref={ref}>
+        {logs.map((l, i) =>
+          <div className="log-line" key={i}>
+            <span className="ts">{l.ts}</span>
+            <span className={`lvl ${l.lvl}`}>{l.lvl.toUpperCase()}</span>
+            <span className="msg">{l.msg}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- Masks tab ----------------------------- */
+function MasksTab({ capture }) {
+  // The real mask inspector lives at
+  // `/api/captures/{dbId}/mask-viewer` — generated server-side from
+  // the actual masks NPZ. We embed it as an iframe so the user has
+  // exactly the same click-to-pick / per-object toggle UX as the
+  // standalone HTML viewer, without re-implementing it twice.
+  const samState = capture.stages.sam?.s;
+  if (samState === 'queued') {
+    return (
+      <div className="card card-pad" style={{textAlign:'center', padding:'48px 20px', color:'var(--text-3)'}}>
+        Run the SAM stage to see masks.
+      </div>
+    );
+  }
+  if (samState !== 'ok') {
+    return (
+      <div className="card card-pad" style={{textAlign:'center', padding:'48px 20px', color:'var(--text-3)'}}>
+        SAM stage status: <code>{samState}</code>. Mask viewer becomes available
+        once the stage succeeds.
+      </div>
+    );
+  }
+  return (
+    <div className="card" style={{padding: 0, overflow: 'hidden', height: 'calc(100vh - 180px)'}}>
+      <iframe
+        src={`/api/captures/${capture.dbId}/mask-viewer`}
+        style={{width:'100%', height:'100%', border: 0, display:'block'}}
+        title="SAM mask viewer"
+      />
+    </div>
+  );
+}
+
+// (Legacy mock kept for reference, unreached.)
+function MasksTabLegacy({ capture }) {
+  const [frame, setFrame] = useState(42);
+  const [opacity, setOpacity] = useState(0.55);
+  const [objects, setObjects] = useState([
+    { id: 'pole', name: 'pole', color: '#e8c547', conf: 0.97, on: true },
+    { id: 'crossarm', name: 'crossarm', color: '#6aa9d6', conf: 0.93, on: true },
+    { id: 'transformer', name: 'transformer', color: '#d36464', conf: 0.88, on: true },
+    { id: 'wires', name: 'wires_bundle', color: '#5fb878', conf: 0.81, on: false },
+    { id: 'ground', name: 'ground_plane', color: '#9b6ad6', conf: 0.74, on: false },
+  ]);
+  const [taps, setTaps] = useState([
+    { id: 1, frame: 12, x: 482, y: 96, label: 'tip' },
+    { id: 2, frame: 18, x: 491, y: 538, label: 'base' },
+    { id: 3, frame: 42, x: 478, y: 94, label: 'tip' },
+  ]);
+
+  const totalFrames = capture.photoCount || 142;
+
+  const tapPct = (t) => ({ left: `${(t.x/960)*100}%`, top: `${(t.y/600)*100}%` });
+
+  const onCanvasClick = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = Math.round(((e.clientX - r.left) / r.width) * 960);
+    const y = Math.round(((e.clientY - r.top) / r.height) * 600);
+    setTaps(ts => [...ts, { id: ts.length + 1, frame, x, y, label: ts.length % 2 === 0 ? 'tip' : 'base' }]);
+  };
+
+  if (capture.stages.sam?.s !== 'ok' && capture.stages.sam?.s !== 'run') {
+    return (
+      <div className="card card-pad" style={{textAlign:'center', padding:'48px 20px', color:'var(--text-3)'}}>
+        Run the SAM stage to see masks.
+        <div style={{marginTop: 14}}><button className="btn primary"><Icon.play/> Run SAM</button></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="masks-grid">
+      <div>
+        <div className="viewer grid-bg" onClick={onCanvasClick}>
+          {/* Mock segmentation image: gradient with shapes */}
+          <svg className="viewer-canvas" viewBox="0 0 960 600" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.04)" strokeWidth="2"/>
+              </pattern>
+              <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor="#1a1f2a"/>
+                <stop offset="1" stopColor="#2a2620"/>
+              </linearGradient>
+            </defs>
+            <rect width="960" height="600" fill="url(#sky)"/>
+            <rect width="960" height="600" fill="url(#hatch)"/>
+
+            {/* horizon */}
+            <line x1="0" y1="430" x2="960" y2="445" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+
+            {/* pole mask */}
+            {objects.find(o => o.id==='pole').on && (
+              <polygon points="465,80 495,80 510,560 460,560" fill="#e8c547" opacity={opacity*0.55}/>
+            )}
+            {/* crossarm */}
+            {objects.find(o => o.id==='crossarm').on && (
+              <polygon points="380,138 600,138 600,148 380,148" fill="#6aa9d6" opacity={opacity*0.6}/>
+            )}
+            {/* transformer */}
+            {objects.find(o => o.id==='transformer').on && (
+              <rect x="438" y="170" width="60" height="80" rx="4" fill="#d36464" opacity={opacity*0.55}/>
+            )}
+            {/* wires */}
+            {objects.find(o => o.id==='wires').on && (
+              <g stroke="#5fb878" strokeWidth="1" opacity={opacity*0.8} fill="none">
+                <path d="M0,150 Q480,170 960,142"/>
+                <path d="M0,160 Q480,180 960,152"/>
+              </g>
+            )}
+
+            {/* pole-axis line */}
+            <line x1="478" y1="80" x2="488" y2="560" className="pole-line"/>
+
+            {/* photo "edges" for realism */}
+            <g stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none">
+              <path d="M0,440 Q300,420 700,440 T960,438"/>
+              <path d="M0,450 Q300,430 700,450 T960,448"/>
+            </g>
+          </svg>
+
+          {/* taps */}
+          {taps.filter(t => t.frame === frame).map(t => (
+            <React.Fragment key={t.id}>
+              <div className="tap-dot" style={tapPct(t)}/>
+              <div className="tap-label" style={tapPct(t)}>#{t.id} {t.label}</div>
+            </React.Fragment>
+          ))}
+
+          {/* Frame strip */}
+          <div className="frame-strip" onClick={e => e.stopPropagation()}>
+            <span className="frame-num">frame {String(frame).padStart(3,'0')} / {totalFrames}</span>
+            <div className="slider" onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setFrame(Math.max(0, Math.min(totalFrames, Math.round(((e.clientX - r.left)/r.width)*totalFrames))));
+            }}>
+              <div className="fill" style={{width: `${(frame/totalFrames)*100}%`}}/>
+              <div className="knob" style={{left: `${(frame/totalFrames)*100}%`}}/>
+              <div className="ticks">
+                {taps.map(t => <i key={t.id} style={{left: `${(t.frame/totalFrames)*100}%`}}/>)}
+              </div>
+            </div>
+            <span className="frame-num" style={{color:'var(--text-4)'}}>30 fps</span>
+          </div>
+        </div>
+
+        <div style={{marginTop: 10, display:'flex', gap: 10, color:'var(--text-4)', fontSize: 11.5, fontFamily:'var(--mono)'}}>
+          <span>tip: click on the pole to add a reference tap. Two taps in two frames calibrate scale.</span>
+        </div>
+      </div>
+
+      <div className="mask-panel">
+        <div className="panel-block">
+          <h4>Objects</h4>
+          {objects.map(o => (
+            <div className="obj-row" key={o.id}>
+              <span className="obj-swatch" style={{background: o.color}}/>
+              <span className="obj-name">{o.name}</span>
+              <span className="obj-conf">{o.conf.toFixed(2)}</span>
+              <div className={`toggle ${o.on ? 'on' : ''}`} onClick={() => setObjects(os => os.map(x => x.id === o.id ? {...x, on: !x.on} : x))}>
+                <div className="knob"/>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="panel-block">
+          <h4>Display</h4>
+          <div className="slider-row">
+            <label>Opacity</label>
+            <div className="slider" onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setOpacity(Math.max(0, Math.min(1, (e.clientX - r.left)/r.width)));
+            }}>
+              <div className="fill" style={{width: `${opacity*100}%`}}/>
+              <div className="knob" style={{left: `${opacity*100}%`}}/>
+            </div>
+            <span className="val">{opacity.toFixed(2)}</span>
+          </div>
+          <div className="slider-row">
+            <label>Edge feather</label>
+            <div className="slider"><div className="fill" style={{width: '32%'}}/><div className="knob" style={{left:'32%'}}/></div>
+            <span className="val">0.32</span>
+          </div>
+        </div>
+
+        <div className="panel-block">
+          <h4>Reference taps</h4>
+          <div className="ref-tap-list">
+            {taps.length === 0 && (
+              <div style={{color:'var(--text-4)', fontSize: 11.5, fontFamily:'var(--mono)', padding: '6px 0'}}>
+                No taps yet. Click the pole to add one.
+              </div>
+            )}
+            {taps.map(t => (
+              <div className="ref-tap" key={t.id}>
+                <span className="idx">#{t.id}</span>
+                <span className="coord">f{String(t.frame).padStart(3,'0')} · ({t.x}, {t.y}) · {t.label}</span>
+                <span className="x" onClick={() => setTaps(ts => ts.filter(x => x.id !== t.id))}>×</span>
+              </div>
+            ))}
+          </div>
+          <div style={{display:'flex', gap: 6, marginTop: 12}}>
+            <button className="btn primary" style={{flex: 1, justifyContent:'center'}}>Save & re-run scale</button>
+            <button className="btn" onClick={() => setTaps([])}>Clear</button>
+          </div>
+          <div style={{marginTop: 8, fontFamily:'var(--mono)', fontSize: 11, color:'var(--text-4)'}}>
+            {taps.length} tap{taps.length===1?'':'s'} · last saved {capture.stages.scale?.t ? fmtTime(capture.stages.scale.t) : 'never'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- 3D tab ----------------------------- */
+// In-browser three.js viewer. Renders the same artifacts viser does
+// (cloud + frustums + pole axis + ground plane) but without spawning
+// a subprocess on a second port. The legacy viser path is still
+// reachable via the "Open detailed viewer" button — it triggers the
+// /api/captures/{id}/view-3d endpoint and pops localhost:8080 in a
+// new tab.
+function ThreeDTab({ capture }) {
+  const mountRef = useRef(null);
+  const renderRef = useRef(null);  // imperative handle: { setLayer, dispose, ... }
+  const [error, setError] = useState(null);
+  const [progress, setProgress] = useState(null);   // 'scene' | 'cloud' | 'done'
+  const [layers, setLayers] = useState({
+    cloud: true, frustums: true, frustumImages: true,
+    axis: true, groundPlane: false, alignGround: true,
+    orbitTarget: true,
+  });
+  const [pointSize, setPointSize] = useState(0.005);
+  const [busy, setBusy] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Detailed-viewer (viser) handoff.
+  const openDetailedViewer = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/captures/${capture.dbId}/view-3d`,
+                            {method: 'POST'});
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || `${r.status}`);
+      // Brief wait for viser to bind 8080 before opening.
+      await new Promise(res => setTimeout(res, 1200));
+      window.open('http://localhost:8080', '_blank', 'noreferrer');
+    } catch (e) {
+      setError('viser handoff failed: ' + e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Mount the three.js scene when the tab opens for a capture.
+  useEffect(() => {
+    if (!mountRef.current) return;
+    if (capture.stages.pose?.s !== 'ok') return;
+    if (typeof THREE === 'undefined') {
+      setError('three.js failed to load (THREE global missing).');
+      return;
+    }
+    const missing = [];
+    if (!THREE.OrbitControls) missing.push('OrbitControls');
+    if (!THREE.PLYLoader) missing.push('PLYLoader');
+    if (!THREE.CSS2DRenderer) missing.push('CSS2DRenderer');
+    if (missing.length) {
+      setError(`three.js add-ons missing: ${missing.join(', ')}. Check the CDN tags in <head>.`);
+      return;
+    }
+
+    const handle = mountThreeScene({
+      mount: mountRef.current,
+      capture,
+      onProgress: setProgress,
+      onError: setError,
+      initialLayers: layers,
+      initialPointSize: pointSize,
+    });
+    renderRef.current = handle;
+    return () => { handle.dispose(); renderRef.current = null; };
+  }, [capture.dbId, capture.stages.pose?.s]);
+
+  // Push layer toggles + point size into the scene without
+  // remounting.
+  useEffect(() => { renderRef.current?.applyLayers?.(layers); }, [layers]);
+  useEffect(() => { renderRef.current?.setPointSize?.(pointSize); }, [pointSize]);
+
+  // `?` and `h` toggle the help overlay (handled at React level so
+  // the overlay state persists). Other shortcuts (F, P, 1, 3, 5, 7)
+  // live inside mountThreeScene.
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.metaKey || e.ctrlKey) return;
+      if (e.key === '?' || e.key === 'h' || e.key === 'H') {
+        setShowHelp(s => !s); e.preventDefault();
+      } else if (e.key === 'Escape') {
+        setShowHelp(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const navBtn = {
+    height: 26, padding: '0 9px', fontSize: 11.5,
+    background: 'var(--bg-3)', border: '1px solid var(--line-2)',
+    color: 'var(--text-2)', borderRadius: 4, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+  };
+
+  if (capture.stages.pose?.s !== 'ok') {
+    return (
+      <div className="card card-pad" style={{textAlign:'center', padding:'48px 20px', color:'var(--text-3)'}}>
+        Run the Pose stage to see the 3D scene.
+      </div>
+    );
+  }
+
+  const setLayer = (k, v) => setLayers(s => ({ ...s, [k]: v }));
+
+  return (
+    <>
+      <div className="threed-status">
+        <div className="left">
+          <span className="pip"/>
+          <span style={{fontSize:12, color:'var(--text-2)'}}>three.js viewer</span>
+          <span className="url">{capture.id}{progress === 'cloud' ? ' · loading cloud…' : ''}</span>
+        </div>
+        <div style={{display:'flex', gap: 6, alignItems:'center', flexWrap:'wrap'}}>
+          <div style={{display:'flex', gap: 4}}>
+            <button style={navBtn} title="Frame all (F / R)"
+              onClick={() => renderRef.current?.frameAll?.()}>Frame all</button>
+            <button style={navBtn} title="Frame pole (P)"
+              onClick={() => renderRef.current?.framePole?.()}>Frame pole</button>
+          </div>
+          <div style={{width: 1, height: 18, background:'var(--line-2)'}}/>
+          <div style={{display:'flex', gap: 4}}>
+            <button style={navBtn} title="Top view (7)"
+              onClick={() => renderRef.current?.setView?.('top')}>Top</button>
+            <button style={navBtn} title="Front view (1)"
+              onClick={() => renderRef.current?.setView?.('front')}>Front</button>
+            <button style={navBtn} title="Side view (3)"
+              onClick={() => renderRef.current?.setView?.('right')}>Side</button>
+            <button style={navBtn} title="Iso view (5)"
+              onClick={() => renderRef.current?.setView?.('iso')}>Iso</button>
+          </div>
+          <div style={{width: 1, height: 18, background:'var(--line-2)'}}/>
+          <button style={navBtn} title="Keyboard shortcuts (? or H)"
+            onClick={() => setShowHelp(s => !s)}>?</button>
+          <button className="btn" onClick={openDetailedViewer} disabled={busy}>
+            <Icon.ext/> {busy ? 'Launching…' : 'viser'}
+          </button>
+        </div>
+      </div>
+      {error && (
+        <div style={{padding:'8px 14px', background:'var(--err-soft)',
+                       borderBottom:'1px solid var(--err)', color:'var(--err)',
+                       fontFamily:'var(--mono)', fontSize:12}}>
+          {error}
+        </div>
+      )}
+      <div className="threed-frame" style={{padding: 0, overflow: 'hidden',
+                                              position:'relative',
+                                              height:'calc(100vh - 220px)'}}>
+        <div ref={mountRef} style={{position:'absolute', inset:0}}/>
+        {/* Hint banner — shown briefly on first load, dismissible. */}
+        <div style={{position:'absolute', bottom: 12, left: 12, padding:'6px 10px',
+                       background:'rgba(20,20,23,0.85)', border:'1px solid var(--line-2)',
+                       borderRadius:4, fontSize:11, color:'var(--text-3)',
+                       fontFamily:'var(--mono)'}}>
+          drag&nbsp;to&nbsp;orbit · scroll&nbsp;zoom · double-click&nbsp;to&nbsp;recenter · <b>?</b>&nbsp;help
+        </div>
+        {showHelp && (
+          <div onClick={() => setShowHelp(false)}
+               style={{position:'absolute', inset:0,
+                         background:'rgba(0,0,0,0.55)',
+                         display:'flex', alignItems:'center', justifyContent:'center',
+                         zIndex: 10, cursor:'pointer'}}>
+            <div onClick={e => e.stopPropagation()}
+                 style={{maxWidth: 460, background:'var(--bg-2)',
+                           border:'1px solid var(--line-2)', borderRadius:6,
+                           padding:'18px 22px', cursor:'auto'}}>
+              <div style={{display:'flex', alignItems:'center', justifyContent:'space-between',
+                             marginBottom: 10}}>
+                <strong style={{fontSize:13}}>3D viewer controls</strong>
+                <button style={navBtn} onClick={() => setShowHelp(false)}>esc</button>
+              </div>
+              <table style={{width:'100%', borderCollapse:'collapse', fontSize:12,
+                              fontFamily:'var(--mono)'}}>
+                <tbody>
+                  {[
+                    ['drag', 'orbit around target'],
+                    ['right-drag · shift+drag', 'pan'],
+                    ['scroll', 'zoom'],
+                    ['double-click', 'set orbit target where you clicked'],
+                    ['F · R', 'frame all'],
+                    ['P', 'frame pole'],
+                    ['7', 'top view'],
+                    ['1', 'front view'],
+                    ['3', 'side view'],
+                    ['5', 'iso view'],
+                    ['? · H', 'this help'],
+                    ['esc', 'close help'],
+                  ].map(([k, desc], i) => (
+                    <tr key={i} style={{borderBottom:'1px solid var(--line)'}}>
+                      <td style={{padding:'5px 8px 5px 0', color:'var(--text-2)',
+                                    whiteSpace:'nowrap'}}>{k}</td>
+                      <td style={{padding:'5px 0', color:'var(--text-3)'}}>{desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{marginTop: 12, fontSize: 11, color:'var(--text-4)',
+                             lineHeight: 1.5}}>
+                Tip: turn on <b>Align to ground</b> in the Layers panel for the
+                Top/Front/Side presets to mean what you'd expect — they assume
+                world +Y is "up".
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Floating layer GUI */}
+        <div style={{position:'absolute', top:12, right:12, padding:12,
+                       background:'rgba(20,20,23,0.92)',
+                       border:'1px solid var(--line-2)', borderRadius:6,
+                       fontSize:12, minWidth: 220,
+                       backdropFilter:'blur(6px)'}}>
+          <div style={{color:'var(--text-3)', fontSize:11, textTransform:'uppercase',
+                         letterSpacing:'0.05em', marginBottom: 8}}>Layers</div>
+          {[
+            ['cloud', 'Point cloud'],
+            ['frustums', 'Camera frustums'],
+            ['frustumImages', '  · with frame images'],
+            ['axis', 'Pole axis + endpoints'],
+            ['groundPlane', 'Ground plane'],
+            ['alignGround', 'Align to vertical'],
+            ['orbitTarget', 'Orbit target dot'],
+          ].map(([k, label]) =>
+            <label key={k} style={{display:'flex', alignItems:'center',
+                                     gap:6, padding:'2px 0', cursor:'pointer'}}>
+              <input type="checkbox" checked={layers[k]}
+                     onChange={e => setLayer(k, e.target.checked)}/>
+              <span>{label}</span>
+            </label>
+          )}
+          <div style={{marginTop:10, color:'var(--text-3)', fontSize:11}}>
+            Point size <span className="num" style={{color:'var(--text-2)'}}>{pointSize.toFixed(4)}</span>
+          </div>
+          <input type="range" min="0.001" max="0.05" step="0.001"
+                 value={pointSize} onChange={e => setPointSize(parseFloat(e.target.value))}
+                 style={{width:'100%'}}/>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// --- three.js scene mounter ----------------------------------------
+// Builds the scene imperatively (outside React's vDOM) so we don't
+// rebuild every render. Returns a handle the React component can use
+// to push layer toggles / point size and to dispose of WebGL state.
+function mountThreeScene({ mount, capture, onProgress, onError,
+                            initialLayers, initialPointSize }) {
+  onError(null);
+  onProgress('scene');
+
+  const width = mount.clientWidth || 1;
+  const height = mount.clientHeight || 1;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0e0e10);
+
+  const camera = new THREE.PerspectiveCamera(60, width / height, 0.001, 1000);
+  camera.position.set(2, 2, 2);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(width, height);
+  mount.appendChild(renderer.domElement);
+
+  // CSS2D label renderer overlays HTML labels on top of the canvas.
+  const labelRenderer = new THREE.CSS2DRenderer();
+  labelRenderer.setSize(width, height);
+  Object.assign(labelRenderer.domElement.style, {
+    position: 'absolute', top: '0', left: '0',
+    pointerEvents: 'none',
+  });
+  mount.appendChild(labelRenderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  // N1: unlimited polar rotation. OrbitControls' default clamp at
+  // [0, π] is the "can't drag past vertical" pain.
+  controls.minPolarAngle = -Infinity;
+  controls.maxPolarAngle = Infinity;
+  // N5: ground-locked pan. Vertical mouse always moves world +Y,
+  // horizontal moves along world XZ — feels right when the camera
+  // is tilted looking down at the road.
+  controls.screenSpacePanning = false;
+  // N4: we install a custom wheel handler below for zoom-to-cursor.
+  // Disable the default so wheel events go to ours.
+  controls.enableZoom = false;
+
+  // Containers we toggle visibility on.
+  const root = new THREE.Group();
+  scene.add(root);
+  const cloudGroup = new THREE.Group();
+  const frustumGroup = new THREE.Group();
+  const axisGroup = new THREE.Group();
+  const planeGroup = new THREE.Group();
+  const gridGroup = new THREE.Group();
+  root.add(cloudGroup, frustumGroup, axisGroup, planeGroup, gridGroup);
+
+  // Disposal book-keeping.
+  const disposables = [];
+  const remember = (obj) => disposables.push(obj);
+
+  // Ambient + directional light helps the textured frustum images
+  // pop a bit from the dark background.
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.4);
+  dl.position.set(5, 10, 7);
+  scene.add(dl);
+
+  let pointsMaterial = null;     // T3 will create
+  let layers = { ...initialLayers };
+  let alignmentApplied = false;
+  // Hoisted state used by navigation helpers (frameAll, framePole,
+  // setView, smartDefaultView, double-click target). Updated as
+  // buildCloud / buildPoleAxis / buildFrustums succeed.
+  let sceneBounds = null;        // { center: Vector3, radius: number }
+  let poleEnds = null;           // { top: Vector3, bottom: Vector3 }
+  let cameraCentres = [];        // Array<Vector3> — camera positions (local; rotated through root)
+  let alignmentSource = 'none';  // 'pole' | 'plane' | 'none' — for GUI display
+  // Suggested "natural" world up. When alignGround is on, the scene
+  // root rotates so this points world +Y. Until alignment lands we
+  // use it as a hint for preset views.
+  const worldUp = new THREE.Vector3(0, 1, 0);
+
+  // ---------- Navigation helpers (frame, presets, click-to-target) ----------
+  // Convert a local-space (i.e., pre-alignment) vector into world
+  // space so framing math sees the geometry where the user sees it.
+  function _world(v) {
+    root.updateMatrixWorld(true);
+    return v.clone().applyMatrix4(root.matrixWorld);
+  }
+  function _currentDir() {
+    // Unit vector from target → camera. Used when reframing without
+    // changing the user's chosen viewing angle.
+    const d = new THREE.Vector3().subVectors(camera.position, controls.target);
+    if (d.lengthSq() < 1e-12) return new THREE.Vector3(1, 0.7, 1).normalize();
+    return d.normalize();
+  }
+  function frameBox(box, opts) {
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const radius = Math.max(size.x, size.y, size.z, 0.05) * 0.7;
+    const dir = (opts?.dir) || _currentDir();
+    controls.target.copy(center);
+    camera.position.copy(center).add(dir.clone().multiplyScalar(radius * 2.2));
+    if (opts?.up) camera.up.copy(opts.up);
+    camera.near = Math.max(0.001, radius * 0.001);
+    camera.far = radius * 80;
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
+  function frameAll() {
+    if (!sceneBounds) return;
+    const r = sceneBounds.radius;
+    const c = _world(sceneBounds.center);
+    frameBox(new THREE.Box3(
+      new THREE.Vector3(c.x - r, c.y - r, c.z - r),
+      new THREE.Vector3(c.x + r, c.y + r, c.z + r),
+    ));
+  }
+  function framePole() {
+    if (!poleEnds) return frameAll();
+    const top = _world(poleEnds.top);
+    const bot = _world(poleEnds.bottom);
+    const len = top.distanceTo(bot);
+    const margin = Math.max(len * 0.4, 0.2);
+    const box = new THREE.Box3();
+    box.expandByPoint(top);
+    box.expandByPoint(bot);
+    box.expandByVector(new THREE.Vector3(margin, margin * 0.2, margin));
+    const axis = new THREE.Vector3().subVectors(top, bot).normalize();
+    let dir = new THREE.Vector3(axis.z, 0, -axis.x);
+    if (dir.lengthSq() < 1e-3) dir.set(1, 0, 0);
+    dir.normalize();
+    frameBox(box, { dir, up: new THREE.Vector3(0, 1, 0) });
+  }
+  // N3: place the camera ~where the photographer was standing,
+  // looking at the pole, with vertical on screen.
+  function smartDefaultView() {
+    if (!cameraCentres.length || !poleEnds) {
+      if (poleEnds) framePole();
+      else if (sceneBounds) frameAll();
+      return;
+    }
+    const top = _world(poleEnds.top);
+    const bot = _world(poleEnds.bottom);
+    const poleMid = top.clone().add(bot).multiplyScalar(0.5);
+    const camCentroid = new THREE.Vector3();
+    cameraCentres.forEach(c => camCentroid.add(_world(c)));
+    camCentroid.divideScalar(cameraCentres.length);
+    let dir = camCentroid.clone().sub(poleMid);
+    if (dir.lengthSq() < 1e-9) dir.set(1, 0, 0);
+    dir.normalize();
+    const poleLen = top.distanceTo(bot);
+    const dist = Math.max(poleLen * 1.6, 0.3);
+    controls.target.copy(poleMid);
+    camera.position.copy(poleMid).add(dir.multiplyScalar(dist));
+    camera.up.set(0, 1, 0);
+    camera.near = Math.max(0.001, poleLen * 0.005);
+    camera.far  = poleLen * 80;
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
+  function setView(name) {
+    if (!sceneBounds) return;
+    const r = sceneBounds.radius * 1.6;
+    const t = controls.target;
+    const presets = {
+      top:   { pos: [0,  r,  0], up: [0, 0, -1] },
+      front: { pos: [0,  0,  r], up: [0, 1,  0] },
+      back:  { pos: [0,  0, -r], up: [0, 1,  0] },
+      left:  { pos: [-r, 0,  0], up: [0, 1,  0] },
+      right: { pos: [r,  0,  0], up: [0, 1,  0] },
+      iso:   { pos: [r * 0.7, r * 0.7, r * 0.7], up: [0, 1, 0] },
+    };
+    const p = presets[name];
+    if (!p) return;
+    camera.position.set(t.x + p.pos[0], t.y + p.pos[1], t.z + p.pos[2]);
+    camera.up.set(...p.up);
+    controls.update();
+  }
+
+  // Raycast on the cloud + scene to set a new orbit target.
+  const _raycaster = new THREE.Raycaster();
+  const _ndc = new THREE.Vector2();
+  function setTargetFromClientXY(clientX, clientY) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    _ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    _ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    _raycaster.setFromCamera(_ndc, camera);
+    _raycaster.params.Points.threshold = (pointsMaterial?.size || 0.005) * 4;
+    let hits = [];
+    if (cloudGroup.children[0]) {
+      hits = _raycaster.intersectObject(cloudGroup.children[0], false);
+    }
+    if (!hits.length) {
+      hits = _raycaster.intersectObject(root, true);
+    }
+    if (!hits.length) return false;
+    controls.target.copy(hits[0].point);
+    controls.update();
+    return true;
+  }
+
+  function applyVisibility() {
+    cloudGroup.visible = !!layers.cloud;
+    frustumGroup.visible = !!layers.frustums;
+    axisGroup.visible = !!layers.axis;
+    planeGroup.visible = !!layers.groundPlane;
+    gridGroup.visible = !!layers.alignGround;
+    // Frustum textures live on child mesh nodes tagged ".isFrustumImage".
+    frustumGroup.traverse(o => {
+      if (o.userData?.isFrustumImage) o.visible = !!layers.frustumImages;
+    });
+  }
+  function applyAlignment(quat, translateY) {
+    if (quat) {
+      root.quaternion.copy(quat);
+      root.position.set(0, translateY ?? 0, 0);
+    } else {
+      root.quaternion.identity();
+      root.position.set(0, 0, 0);
+    }
+  }
+
+  // ---------- T3: Point cloud ----------
+  function buildCloud(plyArrayBuffer) {
+    const loader = new THREE.PLYLoader();
+    let geometry;
+    try {
+      geometry = loader.parse(plyArrayBuffer);
+    } catch (e) {
+      onError('failed to parse PLY: ' + e.message);
+      return;
+    }
+    geometry.computeBoundingBox();
+    const center = new THREE.Vector3();
+    geometry.boundingBox.getCenter(center);
+    const size = new THREE.Vector3();
+    geometry.boundingBox.getSize(size);
+    const radius = Math.max(size.x, size.y, size.z, 0.5) * 0.7;
+
+    pointsMaterial = new THREE.PointsMaterial({
+      size: initialPointSize,
+      vertexColors: !!geometry.attributes.color,
+      sizeAttenuation: true,
+    });
+    if (!geometry.attributes.color) {
+      pointsMaterial.color = new THREE.Color(0xc8c8d0);
+    }
+    const points = new THREE.Points(geometry, pointsMaterial);
+    cloudGroup.add(points);
+    remember(geometry);
+    remember(pointsMaterial);
+
+    // Stash bounds so navigation helpers (Frame All, presets) can
+    // reach them. Initial framing happens in `load()` once everything
+    // (cloud + pole) has loaded — gives us a chance to prefer
+    // framePole() when a pole is present.
+    sceneBounds = { center: center.clone(), radius };
+    camera.near = Math.max(0.001, radius * 0.001);
+    camera.far = radius * 80;
+    camera.updateProjectionMatrix();
+  }
+
+  // ---------- T4: Camera frustums + textures ----------
+  function buildFrustums(cameras, imageHw) {
+    if (!cameras || !cameras.length) return;
+    const palette = (i) => {
+      const u = i / Math.max(cameras.length - 1, 1);
+      return new THREE.Color(
+        0.2 + 0.6 * u,
+        0.7 - 0.5 * u,
+        0.9 - 0.4 * u,
+      );
+    };
+    const padH = imageHw[0], padW = imageHw[1];
+    const nearDepth = 0.15;   // model-unit length of the frustum
+    cameraCentres = [];                  // reset per build
+
+    cameras.forEach((cam, i) => {
+      const K = cam.intrinsic;
+      const E = cam.extrinsic;     // c2w (3x4)
+      const fx = K[0][0], fy = K[1][1];
+      const cx = K[0][2], cy = K[1][2];
+
+      // Pixel corners of the image, back-projected into camera-space
+      // direction vectors at depth = nearDepth.
+      const corners = [
+        [0, 0], [padW, 0], [padW, padH], [0, padH],
+      ].map(([u, v]) => {
+        const x = (u - cx) / fx * nearDepth;
+        const y = (v - cy) / fy * nearDepth;
+        const z = nearDepth;
+        return new THREE.Vector3(x, y, z);
+      });
+
+      // c2w transform: world = R @ cam + t.
+      const R = new THREE.Matrix3().set(
+        E[0][0], E[0][1], E[0][2],
+        E[1][0], E[1][1], E[1][2],
+        E[2][0], E[2][1], E[2][2],
+      );
+      const t = new THREE.Vector3(E[0][3], E[1][3], E[2][3]);
+      const cornersWorld = corners.map(c => c.clone().applyMatrix3(R).add(t));
+      const eye = t.clone();
+      cameraCentres.push(eye.clone());
+
+      // Wireframe edges: 4 from eye to corners + 4 around the near plane.
+      const linePts = [];
+      cornersWorld.forEach(c => { linePts.push(eye, c); });
+      for (let j = 0; j < 4; j++) {
+        linePts.push(cornersWorld[j], cornersWorld[(j + 1) % 4]);
+      }
+      const geom = new THREE.BufferGeometry().setFromPoints(linePts);
+      const mat = new THREE.LineBasicMaterial({ color: palette(i) });
+      const lines = new THREE.LineSegments(geom, mat);
+      frustumGroup.add(lines);
+      remember(geom); remember(mat);
+
+      // Textured plane on the near plane. Texture is loaded async.
+      const planeGeom = new THREE.BufferGeometry();
+      const verts = new Float32Array([
+        cornersWorld[0].x, cornersWorld[0].y, cornersWorld[0].z,
+        cornersWorld[1].x, cornersWorld[1].y, cornersWorld[1].z,
+        cornersWorld[2].x, cornersWorld[2].y, cornersWorld[2].z,
+        cornersWorld[3].x, cornersWorld[3].y, cornersWorld[3].z,
+      ]);
+      const idx = new Uint16Array([0, 1, 2, 0, 2, 3]);
+      const uv = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
+      planeGeom.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+      planeGeom.setIndex(new THREE.BufferAttribute(idx, 1));
+      planeGeom.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      planeGeom.computeVertexNormals();
+
+      const placeholder = new THREE.MeshBasicMaterial({
+        color: 0x222227, side: THREE.DoubleSide, transparent: true, opacity: 0.6,
+      });
+      const planeMesh = new THREE.Mesh(planeGeom, placeholder);
+      planeMesh.userData.isFrustumImage = true;
+      frustumGroup.add(planeMesh);
+      remember(planeGeom); remember(placeholder);
+
+      // Async-load the photo and swap the material.
+      const tl = new THREE.TextureLoader();
+      tl.load(cam.frame_url, (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace || THREE.LinearSRGBColorSpace;
+        tex.flipY = false;
+        const mat = new THREE.MeshBasicMaterial({
+          map: tex, side: THREE.DoubleSide,
+        });
+        planeMesh.material = mat;
+        planeMesh.material.needsUpdate = true;
+        remember(tex); remember(mat);
+      }, undefined, () => { /* keep placeholder on error */ });
+    });
+    applyVisibility();
+  }
+
+  // ---------- T5: Pole axis + ground plane + labels ----------
+  function buildPoleAxis(pole, metricScale) {
+    if (!pole || !pole.top || !pole.bottom) return;
+    const top = new THREE.Vector3(...pole.top);
+    const bot = new THREE.Vector3(...pole.bottom);
+    poleEnds = { top: top.clone(), bottom: bot.clone() };
+    // N2: register the pole-axis candidate. The axis points from
+    // bottom → top (visualize_pole.py convention; verified by sign
+    // checks against camera-up). We map that to world +Y.
+    const poleUp = new THREE.Vector3().subVectors(top, bot).normalize();
+    if (poleUp.lengthSq() > 1e-6) {
+      const target = new THREE.Vector3(0, 1, 0);
+      const quat = new THREE.Quaternion().setFromUnitVectors(poleUp, target);
+      // Translate so the pole bottom lands at world y=0.
+      const botRotated = bot.clone().applyQuaternion(quat);
+      _poleAlignmentCandidate = {
+        quaternion: quat,
+        translateY: -botRotated.y,
+        source: 'pole',
+      };
+    }
+    const axisGeom = new THREE.BufferGeometry().setFromPoints([bot, top]);
+    const axisMat = new THREE.LineBasicMaterial({
+      color: 0xe8c547, linewidth: 2,
+    });
+    axisGroup.add(new THREE.Line(axisGeom, axisMat));
+    remember(axisGeom); remember(axisMat);
+
+    const sphereR = 0.025;
+    const topGeom = new THREE.SphereGeometry(sphereR, 16, 12);
+    const topMat = new THREE.MeshBasicMaterial({ color: 0xff5050 });
+    const topMesh = new THREE.Mesh(topGeom, topMat);
+    topMesh.position.copy(top);
+    axisGroup.add(topMesh);
+    remember(topGeom); remember(topMat);
+
+    const botGeom = new THREE.SphereGeometry(sphereR, 16, 12);
+    const botMat = new THREE.MeshBasicMaterial({ color: 0x50c8ff });
+    const botMesh = new THREE.Mesh(botGeom, botMat);
+    botMesh.position.copy(bot);
+    axisGroup.add(botMesh);
+    remember(botGeom); remember(botMat);
+
+    // Floating CSS2D labels.
+    const mkLabel = (text) => {
+      const div = document.createElement('div');
+      div.textContent = text;
+      Object.assign(div.style, {
+        background: 'rgba(20,20,23,0.85)',
+        color: '#e6e6ea',
+        padding: '2px 6px',
+        borderRadius: '3px',
+        font: '12px JetBrains Mono, monospace',
+        whiteSpace: 'nowrap',
+        border: '1px solid rgba(255,255,255,0.1)',
+      });
+      return new THREE.CSS2DObject(div);
+    };
+    const heightTxt = (pole.height_m != null)
+      ? `top  ${pole.height_m.toFixed(2)} m`
+      : (pole.height_model_units != null
+         ? `top  ${pole.height_model_units.toFixed(3)} units`
+         : 'top');
+    const topLabel = mkLabel(heightTxt);
+    topLabel.position.copy(top).add(new THREE.Vector3(0, 0.06, 0));
+    axisGroup.add(topLabel);
+    const botLabel = mkLabel('bottom (0 m)');
+    botLabel.position.copy(bot).add(new THREE.Vector3(0, 0.06, 0));
+    axisGroup.add(botLabel);
+  }
+
+  function buildGroundPlane(plane, metricScale) {
+    if (!plane || !plane.normal) return;
+    const n = new THREE.Vector3(...plane.normal).normalize();
+    const offset = plane.offset || 0;
+    // A point on the plane closest to origin = n * offset.
+    const planeOrigin = n.clone().multiplyScalar(offset);
+    // Build an orthonormal basis (u, v) in the plane.
+    const helper = Math.abs(n.y) < 0.9
+      ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const u = new THREE.Vector3().crossVectors(n, helper).normalize();
+    const v = new THREE.Vector3().crossVectors(n, u);
+    const halfSize = 1.5;        // ~23 m at our test capture's scale
+    const corners = [
+      planeOrigin.clone().addScaledVector(u, halfSize).addScaledVector(v, halfSize),
+      planeOrigin.clone().addScaledVector(u, -halfSize).addScaledVector(v, halfSize),
+      planeOrigin.clone().addScaledVector(u, -halfSize).addScaledVector(v, -halfSize),
+      planeOrigin.clone().addScaledVector(u, halfSize).addScaledVector(v, -halfSize),
+    ];
+    const verts = new Float32Array(corners.flatMap(c => [c.x, c.y, c.z]));
+    const idx = new Uint16Array([0, 1, 2, 0, 2, 3]);
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    geom.setIndex(new THREE.BufferAttribute(idx, 1));
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffdc64, opacity: 0.18, transparent: true, side: THREE.DoubleSide,
+    });
+    planeGroup.add(new THREE.Mesh(geom, mat));
+    remember(geom); remember(mat);
+
+    // Compute the alignment quaternion that takes `n` → world +Y.
+    const target = new THREE.Vector3(0, 1, 0);
+    const quat = new THREE.Quaternion().setFromUnitVectors(n, target);
+    // Build a 1-meter grid IN the plane (pre-alignment), then it
+    // inherits the alignment rotation along with the rest of root.
+    if (metricScale) {
+      const unitPerM = 1.0 / metricScale;
+      const n2 = 5;
+      const lines = [];
+      for (let k = -n2; k <= n2; k++) {
+        // A line parallel to u at v = k*unitPerM.
+        const a = planeOrigin.clone()
+          .addScaledVector(u, -n2 * unitPerM)
+          .addScaledVector(v, k * unitPerM);
+        const b = planeOrigin.clone()
+          .addScaledVector(u, +n2 * unitPerM)
+          .addScaledVector(v, k * unitPerM);
+        lines.push(a, b);
+        // Parallel to v.
+        const c = planeOrigin.clone()
+          .addScaledVector(v, -n2 * unitPerM)
+          .addScaledVector(u, k * unitPerM);
+        const d = planeOrigin.clone()
+          .addScaledVector(v, +n2 * unitPerM)
+          .addScaledVector(u, k * unitPerM);
+        lines.push(c, d);
+      }
+      const gGeom = new THREE.BufferGeometry().setFromPoints(lines);
+      const gMat = new THREE.LineBasicMaterial({ color: 0x507850, transparent: true, opacity: 0.6 });
+      gridGroup.add(new THREE.LineSegments(gGeom, gMat));
+      remember(gGeom); remember(gMat);
+    }
+
+    // Stash the plane-derived alignment as a candidate. The
+    // best-source choice happens in `computeAndApplyAlignment()`
+    // after every artifact has loaded — pole.axis_dir wins when
+    // available because it's more stable on sparse captures.
+    _planeAlignmentCandidate = {
+      quaternion: quat,
+      translateY: -offset,
+      source: 'plane',
+    };
+  }
+  let storedAlignment = null;
+  let _planeAlignmentCandidate = null;
+  let _poleAlignmentCandidate = null;
+
+  // N2: pick the most reliable "up" reference and apply it.
+  // Pole axis (from triangulate_pole) > ground-plane RANSAC > none.
+  function computeAndApplyAlignment() {
+    const cand = _poleAlignmentCandidate || _planeAlignmentCandidate;
+    if (!cand) {
+      alignmentSource = 'none';
+      storedAlignment = null;
+      return;
+    }
+    storedAlignment = cand;
+    alignmentSource = cand.source;
+    if (layers.alignGround) {
+      applyAlignment(storedAlignment.quaternion, storedAlignment.translateY);
+      alignmentApplied = true;
+    }
+  }
+
+  // ---------- Fetch + build everything ----------
+  async function load() {
+    try {
+      const sr = await fetch(`/api/captures/${capture.dbId}/scene`);
+      if (!sr.ok) {
+        const e = await sr.json().catch(() => ({}));
+        throw new Error(e.detail || `${sr.status}`);
+      }
+      const sceneData = await sr.json();
+      buildFrustums(sceneData.cameras, sceneData.image_hw);
+      buildPoleAxis(sceneData.pole, sceneData.metric_scale);
+      buildGroundPlane(sceneData.ground_plane, sceneData.metric_scale);
+      applyVisibility();
+
+      // PLY (16+ MB) is fetched separately so the rest of the scene
+      // pops in immediately.
+      onProgress('cloud');
+      const pr = await fetch(`/api/captures/${capture.dbId}/ply`);
+      if (pr.ok) {
+        const buf = await pr.arrayBuffer();
+        buildCloud(buf);
+      }
+      // N2: now that pole + plane are both built, pick the best
+      // alignment source and apply it. Pole-axis wins when available.
+      computeAndApplyAlignment();
+      // N3: smart default vantage from camera centroid + pole. Falls
+      // back to framePole / frameAll if those aren't available.
+      smartDefaultView();
+      onProgress('done');
+    } catch (e) {
+      onError(e.message);
+    }
+  }
+  load();
+
+  // ---------- N6: orbit-target indicator ----------
+  // Tiny yellow sphere drawn at controls.target. Lives in the OUTER
+  // scene (not under root) so it stays in world coords regardless of
+  // alignment toggles. Fades out after ~1.2 s of no input.
+  const targetMarkerGeom = new THREE.SphereGeometry(1, 12, 8);
+  const targetMarkerMat = new THREE.MeshBasicMaterial({
+    color: 0xe8c547, transparent: true, opacity: 0.9,
+    depthTest: false,
+  });
+  const targetMarker = new THREE.Mesh(targetMarkerGeom, targetMarkerMat);
+  targetMarker.renderOrder = 999;        // draw above everything
+  scene.add(targetMarker);
+  remember(targetMarkerGeom);
+  remember(targetMarkerMat);
+  let _markerLastInput = performance.now();
+  let _markerVisualOpacity = 0.9;
+  function _bumpMarker() { _markerLastInput = performance.now(); }
+  controls.addEventListener('change', _bumpMarker);
+  renderer.domElement.addEventListener('pointerdown', _bumpMarker);
+
+  // ---------- Axis gizmo (corner overlay) ----------
+  const gizmoScene = new THREE.Scene();
+  const gizmoCam = new THREE.PerspectiveCamera(45, 1, 0.1, 10);
+  // AxesHelper: red=+X, green=+Y, blue=+Z. Same colors three.js uses
+  // everywhere.
+  const gizmoAxes = new THREE.AxesHelper(1);
+  gizmoScene.add(gizmoAxes);
+  remember(gizmoAxes.geometry);
+  const gizmoSize = 96;
+  const gizmoMargin = 14;
+  const _gizmoDir = new THREE.Vector3();
+
+  // ---------- Interaction: double-click sets orbit target ----------
+  function _onDblClick(ev) {
+    if (setTargetFromClientXY(ev.clientX, ev.clientY)) {
+      ev.preventDefault();
+    }
+  }
+  renderer.domElement.addEventListener('dblclick', _onDblClick);
+
+  // ---------- N4: zoom-to-cursor wheel handler ----------
+  // Replaces OrbitControls' default dolly (which always zooms toward
+  // controls.target). Each notch moves both camera and target toward
+  // (or away from) whatever 3D point sits under the mouse.
+  function _anchorFromMouse(ev) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    _ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    _ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    _raycaster.setFromCamera(_ndc, camera);
+    _raycaster.params.Points.threshold = (pointsMaterial?.size || 0.005) * 4;
+    if (cloudGroup.children[0]) {
+      const hits = _raycaster.intersectObject(cloudGroup.children[0], false);
+      if (hits.length) return hits[0].point.clone();
+    }
+    const hits = _raycaster.intersectObject(root, true);
+    if (hits.length) return hits[0].point.clone();
+    // No hit → fall back to the plane perpendicular to the view at
+    // controls.target distance, intersected by the cursor ray.
+    const dist = camera.position.distanceTo(controls.target);
+    return _raycaster.ray.at(dist, new THREE.Vector3());
+  }
+  function _onWheel(ev) {
+    ev.preventDefault();
+    // Scroll DOWN (positive deltaY) = zoom OUT (move away from anchor).
+    // OrbitControls uses 0.95 per notch; tune via a small step factor.
+    const step = Math.exp((ev.deltaY > 0 ? 1 : -1) * 0.12);
+    const anchor = _anchorFromMouse(ev);
+    // New camera position = anchor + (camera.position - anchor) * step
+    const camOffset = new THREE.Vector3().subVectors(camera.position, anchor)
+                                          .multiplyScalar(step);
+    const tgtOffset = new THREE.Vector3().subVectors(controls.target, anchor)
+                                          .multiplyScalar(step);
+    camera.position.copy(anchor).add(camOffset);
+    controls.target.copy(anchor).add(tgtOffset);
+    controls.update();
+  }
+  renderer.domElement.addEventListener('wheel', _onWheel, { passive: false });
+
+  // ---------- Keyboard shortcuts (only fire when no input focused) ----------
+  function _onKey(ev) {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (ev.metaKey || ev.ctrlKey) return;            // dashboard owns ⌘1-5
+    let handled = true;
+    switch (ev.key.toLowerCase()) {
+      case 'f': frameAll(); break;
+      case 'p': framePole(); break;
+      case 'r': frameAll(); break;
+      case '7': setView('top'); break;
+      case '1': setView('front'); break;
+      case '3': setView('right'); break;
+      case '5': setView('iso'); break;
+      default:  handled = false;
+    }
+    if (handled) ev.preventDefault();
+  }
+  window.addEventListener('keydown', _onKey);
+
+  // ---------- Animation loop ----------
+  let stopped = false;
+  function tick() {
+    if (stopped) return;
+    controls.update();
+
+    // N6: place + fade the orbit-target indicator. Size it ~1% of
+    // camera-to-target distance so it stays a steady pixel size in
+    // perspective; opacity decays from 0.9 → 0 over 1.2 s of no
+    // input (kept hidden when layer toggle is off).
+    if (layers.orbitTarget !== false) {
+      const camDist = camera.position.distanceTo(controls.target);
+      targetMarker.position.copy(controls.target);
+      targetMarker.scale.setScalar(Math.max(camDist * 0.012, 0.005));
+      const sinceInput = performance.now() - _markerLastInput;
+      const fade = sinceInput < 200 ? 1
+                 : sinceInput < 1400 ? 1 - (sinceInput - 200) / 1200
+                 : 0;
+      _markerVisualOpacity = 0.9 * fade;
+      targetMarker.material.opacity = _markerVisualOpacity;
+      targetMarker.visible = _markerVisualOpacity > 0.005;
+    } else {
+      targetMarker.visible = false;
+    }
+
+    renderer.setViewport(0, 0,
+      renderer.domElement.clientWidth, renderer.domElement.clientHeight);
+    renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
+    // Render the gizmo last in a small viewport in the bottom-right.
+    const w = renderer.domElement.clientWidth;
+    const h = renderer.domElement.clientHeight;
+    if (w > gizmoSize + gizmoMargin * 2 && h > gizmoSize + gizmoMargin * 2) {
+      _gizmoDir.subVectors(camera.position, controls.target).normalize();
+      gizmoCam.position.copy(_gizmoDir).multiplyScalar(3);
+      gizmoCam.up.copy(camera.up);
+      gizmoCam.lookAt(0, 0, 0);
+      const x = w - gizmoSize - gizmoMargin;
+      const y = gizmoMargin;
+      renderer.setScissorTest(true);
+      renderer.setScissor(x, y, gizmoSize, gizmoSize);
+      renderer.setViewport(x, y, gizmoSize, gizmoSize);
+      renderer.render(gizmoScene, gizmoCam);
+      renderer.setScissorTest(false);
+    }
+    requestAnimationFrame(tick);
+  }
+  tick();
+
+  // Resize tracking.
+  const onResize = () => {
+    const w = mount.clientWidth, h = mount.clientHeight;
+    if (w === 0 || h === 0) return;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    labelRenderer.setSize(w, h);
+  };
+  const ro = new ResizeObserver(onResize);
+  ro.observe(mount);
+
+  return {
+    applyLayers(next) {
+      const wasAligned = layers.alignGround;
+      layers = { ...next };
+      applyVisibility();
+      if (storedAlignment) {
+        if (layers.alignGround && !wasAligned) {
+          applyAlignment(storedAlignment.quaternion, storedAlignment.translateY);
+          alignmentApplied = true;
+        } else if (!layers.alignGround && wasAligned) {
+          applyAlignment(null, 0);
+          alignmentApplied = false;
+        }
+      }
+    },
+    setPointSize(s) {
+      if (pointsMaterial) {
+        pointsMaterial.size = s;
+        pointsMaterial.needsUpdate = true;
+      }
+    },
+    frameAll() { frameAll(); },
+    framePole() { framePole(); },
+    setView(name) { setView(name); },
+    dispose() {
+      stopped = true;
+      ro.disconnect();
+      window.removeEventListener('keydown', _onKey);
+      renderer.domElement.removeEventListener('dblclick', _onDblClick);
+      renderer.domElement.removeEventListener('wheel', _onWheel);
+      renderer.domElement.removeEventListener('pointerdown', _bumpMarker);
+      controls.removeEventListener('change', _bumpMarker);
+      disposables.forEach(d => { try { d.dispose(); } catch {} });
+      // Drop label DOM nodes.
+      labelRenderer.domElement.remove();
+      renderer.domElement.remove();
+      try { renderer.dispose(); } catch {}
+      try { renderer.forceContextLoss(); } catch {}
+    },
+  };
+}
+
+function Mock3DScene({ capture }) {
+  // Decorative SVG mock of a 3D scene with pole, ground, point cloud
+  return (
+    <svg viewBox="0 0 1200 680" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <radialGradient id="ground" cx="50%" cy="80%" r="60%">
+          <stop offset="0" stopColor="#1a1a1f"/>
+          <stop offset="1" stopColor="#0a0a0c"/>
+        </radialGradient>
+        <linearGradient id="hori" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#0e0e10"/>
+          <stop offset="1" stopColor="#1c1c20"/>
+        </linearGradient>
+      </defs>
+      <rect width="1200" height="680" fill="url(#hori)"/>
+      <ellipse cx="600" cy="540" rx="900" ry="240" fill="url(#ground)"/>
+
+      {/* ground grid */}
+      <g stroke="rgba(122,122,214,0.18)" strokeWidth="1" fill="none">
+        {[...Array(14)].map((_,i) => (
+          <line key={i} x1={300 - i*40} y1={460 + i*8} x2={900 + i*40} y2={460 + i*8}/>
+        ))}
+        {[...Array(20)].map((_,i) => (
+          <line key={i} x1={200 + i*50} y1={460} x2={300 + i*40} y2={620}/>
+        ))}
+      </g>
+
+      {/* axes */}
+      <g strokeWidth="2" fill="none">
+        <line x1="600" y1="540" x2="700" y2="540" stroke="#d36464"/>
+        <line x1="600" y1="540" x2="600" y2="440" stroke="#5fb878"/>
+        <line x1="600" y1="540" x2="540" y2="580" stroke="#6aa9d6"/>
+      </g>
+
+      {/* pole */}
+      <g>
+        <rect x="595" y="120" width="10" height="420" fill="#7a6840" opacity="0.85"/>
+        <rect x="510" y="180" width="180" height="8" fill="#7a6840"/>
+        <rect x="595" y="120" width="10" height="420" fill="url(#hatch)"/>
+        {/* pole axis fit */}
+        <line x1="600" y1="120" x2="608" y2="540" stroke="#e8c547" strokeWidth="2" strokeDasharray="6 6"/>
+      </g>
+
+      {/* point cloud */}
+      <g fill="#7a7ad6">
+        {Array.from({length: 250}).map((_, i) => {
+          const x = 300 + Math.random()*600;
+          const y = 300 + Math.random()*300;
+          const r = Math.random() * 1.6 + 0.4;
+          return <circle key={i} cx={x} cy={y} r={r} opacity={0.4 + Math.random()*0.5}/>;
+        })}
+      </g>
+
+      {/* camera frustums */}
+      {[...Array(8)].map((_, i) => {
+        const a = (i / 8) * Math.PI * 2;
+        const cx = 600 + Math.cos(a) * 280;
+        const cy = 470 + Math.sin(a) * 60;
+        return (
+          <g key={i} stroke="#7a7ad6" strokeWidth="1" fill="none" opacity="0.6">
+            <circle cx={cx} cy={cy} r="3" fill="#7a7ad6"/>
+            <path d={`M${cx},${cy} L${cx + (600-cx)*0.04},${cy + (300-cy)*0.04}`}/>
+          </g>
+        );
+      })}
+
+      {/* HUD */}
+      <g fontFamily="JetBrains Mono" fontSize="11" fill="#8a8a92">
+        <text x="20" y="24">viser · {capture.id}</text>
+        <text x="20" y="40" fill="#5fb878">● connected</text>
+        <text x="20" y="660">cameras: 142 · points: 184k · pole_axis fit residual: 0.018</text>
+        <text x="1100" y="660" textAnchor="end">FPS 60</text>
+      </g>
+    </svg>
+  );
+}
+
+/* ----------------------------- Measurements tab ----------------------------- */
+function Spark({ values, color = 'var(--accent)' }) {
+  const max = Math.max(...values), min = Math.min(...values);
+  const span = max - min || 1;
+  const pts = values.map((v, i) => `${(i/(values.length-1))*100},${100 - ((v-min)/span)*100}`).join(' ');
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{width: '100%', height: '100%'}}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" opacity="0.85"/>
+      <polyline points={`0,100 ${pts} 100,100`} fill={color} opacity="0.08"/>
+    </svg>
+  );
+}
+
+function Meas({ name, val, sig, unit, source, runId, sparkVals, info, empty }) {
+  if (empty) {
+    return (
+      <div className="meas empty">
+        <div className="meas-top">
+          <span className="meas-name">{name}</span>
+        </div>
+        <div className="meas-val">Run fit to populate</div>
+      </div>
+    );
+  }
+  return (
+    <div className="meas">
+      <div className="meas-top">
+        <span className="meas-name">{name}</span>
+        <span className="meas-info tip">i
+          <span className="tip-body">{info}</span>
+        </span>
+      </div>
+      <div className="meas-val">{val}<span className="unit">{unit}</span></div>
+      {sig != null
+        ? <div className="meas-bound"><span className="pm">±</span> {sig} {unit}</div>
+        : <div className="meas-bound" style={{color:'var(--text-4)'}}>point estimate · no CI yet</div>}
+      <div className="meas-spark">{sparkVals && <Spark values={sparkVals}/>}</div>
+      <div className="meas-foot">
+        <span>{source}</span>
+        <span>{runId}</span>
+      </div>
+    </div>
+  );
+}
+
+function MeasurementsTab({ capture }) {
+  const [meas, setMeas] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await fetch(`/api/captures/${capture.dbId}/measurements`);
+        if (!r.ok) throw new Error(`${r.status}`);
+        const data = await r.json();
+        if (!cancelled) { setMeas(data.measurements); setError(null); }
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      }
+    }
+    load();
+    const id = setInterval(load, 4000);          // refresh during fit
+    return () => { cancelled = true; clearInterval(id); };
+  }, [capture.dbId]);
+
+  if (error) {
+    return (
+      <div className="card card-pad" style={{padding:'24px', color:'var(--err)'}}>
+        Failed to load measurements: <code>{error}</code>
+      </div>
+    );
+  }
+  if (meas === null) {
+    return <div className="card card-pad" style={{padding:'24px', color:'var(--text-3)'}}>Loading…</div>;
+  }
+  if (meas.length === 0) {
+    return (
+      <div className="card card-pad" style={{textAlign:'center', padding:'48px 20px', color:'var(--text-3)'}}>
+        Measurements appear after the fit stage finishes successfully.
+      </div>
+    );
+  }
+
+  const byKind = Object.fromEntries(meas.map(m => [m.kind, m]));
+  const height = byKind.height_m;
+  const lean = byKind.lean_deg || byKind.lean_cam_up_deg;
+  const scale = byKind.metric_scale;
+  const fmtVal = (v, digits) => v == null ? '—' : v.toFixed(digits);
+  const fmtSig = (s, digits) => s == null ? null : `±${s.toFixed(digits)}`;
+
+  return (
+    <>
+      <div className="meas-summary">
+        <div>
+          <div className="lab">Height</div>
+          <div className="big">{fmtVal(height?.value, 2)}<span className="unit">m</span></div>
+          <div className="small">{height ? (fmtSig(height.sigma, 2) || 'point estimate · no CI yet') : 'run fit to populate'}</div>
+        </div>
+        <div>
+          <div className="lab">Lean</div>
+          <div className="big">{fmtVal(lean?.value, 1)}<span className="unit">°</span></div>
+          <div className="small">{lean ? (lean.source || '') : '—'}</div>
+        </div>
+        <div>
+          <div className="lab">Scale</div>
+          <div className="big">{fmtVal(scale?.value, 2)}<span className="unit">m/u</span></div>
+          <div className="small">{scale ? (fmtSig(scale.sigma, 2) || scale.source || 'fixed') : '—'}</div>
+        </div>
+        <div>
+          <div className="lab">Last fit</div>
+          <div className="big" style={{fontSize:14, marginTop: 12}}>{fmtTime(capture.stages.fit?.t)}</div>
+          <div className="small">{stageMs(capture.stages.fit?.ms) || 'run fit to populate'}</div>
+        </div>
+      </div>
+
+      <div className="section-head">
+        <h3>All measurements</h3>
+        <span className="right">{meas.length} populated · source: artifacts on disk</span>
+      </div>
+      <div className="meas-grid">
+        {meas.map(m => (
+          <Meas key={m.kind}
+                name={prettyKind(m.kind)}
+                val={typeof m.value === 'number' ? m.value.toFixed(unitDigits(m.kind)) : String(m.value)}
+                sig={m.sigma}
+                unit={m.unit}
+                source={m.source}
+                runId=""
+                info={m.info?.method || m.source}
+                sparkVals={null}/>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function prettyKind(k) {
+  return ({
+    height_m: 'Height',
+    lean_deg: 'Lean (vs ground normal)',
+    lean_cam_up_deg: 'Lean (vs camera-up)',
+    metric_scale: 'Metric scale',
+  }[k]) || k;
+}
+function unitDigits(k) {
+  return ({
+    height_m: 2,
+    lean_deg: 1,
+    lean_cam_up_deg: 1,
+    metric_scale: 4,
+  }[k]) ?? 3;
+}
+
+/* ----------------------------- History tab ----------------------------- */
+function HistoryTab({ capture }) {
+  const [runs, setRuns] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await fetch(`/api/captures/${capture.dbId}/runs`);
+        if (!r.ok) throw new Error(`${r.status}`);
+        const data = await r.json();
+        if (!cancelled) { setRuns(data.runs); setError(null); }
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      }
+    }
+    load();
+    const id = setInterval(load, 4000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [capture.dbId]);
+
+  if (error) {
+    return <div className="card card-pad" style={{padding:24, color:'var(--err)'}}>Failed: <code>{error}</code></div>;
+  }
+  if (runs === null) {
+    return <div className="card card-pad" style={{padding:24, color:'var(--text-3)'}}>Loading…</div>;
+  }
+  // Map backend run rows to the design's row schema. Status mapping
+  // mirrors STAGE_STATUS_MAP in App.
+  const statusMap = { queued: 'run', running: 'run', succeeded: 'ok', failed: 'err' };
+  const rows = runs.map(r => {
+    const start = r.started_at ? Date.parse(r.started_at + 'Z') : null;
+    const end = r.finished_at ? Date.parse(r.finished_at + 'Z') : null;
+    return {
+      ts: end || start,
+      stage: (STAGES.find(s => s.id === r.stage)?.name) || r.stage,
+      status: statusMap[r.status] || 'run',
+      ms: (start && end) ? (end - start) : null,
+      exit: r.exit_code ?? (r.status === 'succeeded' ? 0 : r.status === 'failed' ? 1 : '—'),
+      runId: r.id,
+    };
+  });
+
+  return (
+    <>
+      <div className="section-head">
+        <h3>Run history</h3>
+        <span className="right">{rows.length} run{rows.length === 1 ? '' : 's'}{rows.length ? '' : ' yet'}</span>
+      </div>
+      <table className="hist-table">
+        <thead>
+          <tr>
+            <th style={{width: 160}}>Timestamp</th>
+            <th style={{width: 110}}>Stage</th>
+            <th style={{width: 90}}>Status</th>
+            <th style={{width: 100}}>Duration</th>
+            <th style={{width: 80}}>Exit</th>
+            <th style={{width: 80}}>Run</th>
+            <th>Log</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td>{fmtTime(r.ts)}</td>
+              <td><span className="hist-stage">{r.stage.toLowerCase()}</span></td>
+              <td>
+                <span className={`stage-status ${r.status === 'ok' ? 'ok' : r.status === 'err' ? 'err' : 'run'}`}>
+                  <span className="pip"/>{r.status === 'ok' ? 'succeeded' : r.status === 'err' ? 'failed' : 'running'}
+                </span>
+              </td>
+              <td>{stageMs(r.ms)}</td>
+              <td style={{color: r.exit === 0 ? 'var(--text-2)' : 'var(--err)'}}>{r.exit}</td>
+              <td>#{r.runId}</td>
+              <td><button className="btn ghost" style={{height: 22, fontSize: 11, padding: '0 6px'}}>view ↗</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/* ----------------------------- Modals ----------------------------- */
+function NewCaptureModal({ onClose, onCreate }) {
+  const [over, setOver] = useState(false);
+  const [name, setName] = useState('pole_006');
+  const [notes, setNotes] = useState('');
+  const [zipFile, setZipFile] = useState(null);  // a single File (.zip)
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const acceptFiles = (fileList) => {
+    if (!fileList || !fileList.length) return;
+    // Only accept the first .zip in the drop. (Folder uploads aren't
+    // supported yet; see the hint below the drop-zone.)
+    const zips = Array.from(fileList).filter(f =>
+      f.name.toLowerCase().endsWith('.zip')
+    );
+    const f = zips[0] || fileList[0];
+    if (!f.name.toLowerCase().endsWith('.zip')) {
+      setError('Please drop a single .zip file (folder upload coming soon).');
+      return;
+    }
+    setZipFile(f);
+    setError(null);
+    const guess = f.name.replace(/\.zip$/i, '').replace(/[^A-Za-z0-9_-]/g, '_');
+    if (guess) setName(guess);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setOver(false);
+    acceptFiles(e.dataTransfer.files);
+  };
+
+  const upload = async () => {
+    if (!zipFile) { setError('Drop a .zip first.'); return; }
+    setBusy(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('name', name);
+      fd.append('file', zipFile);
+      const r = await fetch('/api/captures/upload', { method: 'POST', body: fd });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || `${r.status}`);
+      onCreate(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>New capture</h2>
+          <button className="btn ghost icon-only" onClick={onClose}><Icon.x/></button>
+        </div>
+        <div className="modal-body">
+          <div className={`drop-zone ${over ? 'over' : ''}`}
+               onDragOver={e => { e.preventDefault(); setOver(true); }}
+               onDragLeave={() => setOver(false)}
+               onDrop={onDrop}
+               onClick={() => fileInputRef.current?.click()}
+               style={{cursor:'pointer'}}>
+            <Icon.upload className="ico"/>
+            <strong>{zipFile ? `${zipFile.name} (${(zipFile.size/1e6).toFixed(1)} MB)` : 'Drop a .zip of photos'}</strong>
+            <span className="sub">.jpg .heic .png inside the zip · stays on this machine</span>
+            <span className="or">— or —</span>
+            <button className="btn" onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}>Choose .zip…</button>
+            <input ref={fileInputRef} type="file" accept=".zip"
+                   style={{display:'none'}}
+                   onChange={e => acceptFiles(e.target.files)}/>
+          </div>
+          <div className="form-row">
+            <label>Capture name</label>
+            <input value={name} onChange={e => setName(e.target.value)}/>
+            <div className="hint">letters / numbers / _ / - only · auto-prefixed with <span className="mono">pole_</span></div>
+          </div>
+          <div className="form-row">
+            <label>Notes <span style={{color:'var(--text-4)'}}>(optional)</span></label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Site, conditions, anything you want to remember…"/>
+          </div>
+          {error && (
+            <div style={{marginTop: 12, padding: 8, background: 'var(--err-soft)',
+                          border: '1px solid var(--err)', borderRadius: 4,
+                          color: 'var(--err)', fontSize: 12, fontFamily: 'var(--mono)'}}>
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={upload} disabled={busy || !zipFile}>
+            <Icon.play/> {busy ? 'Uploading…' : 'Upload & start EXIF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TestsModal({ onClose }) {
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState(null);
+
+  const run = async () => {
+    setRunning(true);
+    setResults(null);
+    try {
+      const r = await fetch('/api/test', { method: 'POST' });
+      const data = await r.json();
+      setResults(data);
+    } catch (e) {
+      setResults({ passed: 0, failed: 0, errors: 1,
+                   duration_s: 0, exit_code: -1,
+                   output: `request failed: ${e.message}` });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{width: 680}} onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Run pytest</h2>
+          <button className="btn ghost icon-only" onClick={onClose}><Icon.x/></button>
+        </div>
+        <div className="modal-body">
+          {!running && !results && (
+            <div style={{textAlign:'center', padding: '24px 0'}}>
+              <div style={{color:'var(--text-3)', marginBottom: 12, fontSize: 12}}>
+                Runs the full pytest suite against the local working tree.
+              </div>
+              <button className="btn primary" onClick={run}><Icon.play/> Run pytest</button>
+            </div>
+          )}
+          {running && (
+            <div style={{padding: '24px 0', textAlign:'center', color:'var(--text-3)', fontFamily:'var(--mono)', fontSize: 12}}>
+              <div style={{display:'inline-flex', alignItems:'center', gap: 8, color: 'var(--warn)'}}>
+                <span className="stage-dot run" style={{width:10, height:10}}/>
+                running tests…
+              </div>
+            </div>
+          )}
+          {results && (
+            <>
+              <div style={{display:'flex', gap: 16, marginBottom: 14, alignItems:'baseline'}}>
+                <span style={{fontFamily:'var(--mono)', fontSize:18, fontWeight:500}}>
+                  <span style={{color:'var(--ok)'}}>{results.passed} passed</span>
+                  <span style={{color:'var(--text-4)', margin: '0 8px'}}>·</span>
+                  <span style={{color: results.failed ? 'var(--err)' : 'var(--text-3)'}}>{results.failed} failed</span>
+                  {results.errors > 0 && <>
+                    <span style={{color:'var(--text-4)', margin: '0 8px'}}>·</span>
+                    <span style={{color:'var(--err)'}}>{results.errors} errors</span>
+                  </>}
+                </span>
+                <span style={{color:'var(--text-4)', fontFamily:'var(--mono)', fontSize: 11}}>
+                  {(results.passed + results.failed + results.errors + (results.skipped || 0))} tests · {results.duration_s?.toFixed?.(2) ?? results.duration_s}s
+                </span>
+              </div>
+              <pre style={{maxHeight: 320, overflowY:'auto', background:'var(--bg-0)',
+                           border:'1px solid var(--line)', padding: 10, borderRadius: 4,
+                           fontFamily:'var(--mono)', fontSize: 11.5, color:'var(--text-2)',
+                           lineHeight: 1.5, margin: 0, whiteSpace:'pre-wrap'}}>
+                {results.output || '(no output)'}
+              </pre>
+            </>
+          )}
+        </div>
+        <div className="modal-foot">
+          {results && <button className="btn" onClick={run}><Icon.refresh/> Re-run</button>}
+          <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- App ----------------------------- */
+// Map a backend capture (api/captures/{id} response) to the shape
+// the rest of the dashboard expects. The design components were
+// built against the mock schema; rather than rewrite them, we
+// translate at the edge.
+const STAGE_STATUS_MAP = {
+  queued: 'queued', running: 'run', succeeded: 'ok', failed: 'err',
+};
+
+function normalizeCapture(api) {
+  // api is the response from /api/captures/{id} (with stages dict).
+  const stages = {};
+  for (const s of ['exif', 'pose', 'sam', 'scale', 'fit']) {
+    const info = api.stages?.[s] || { status: 'queued' };
+    stages[s] = {
+      s: STAGE_STATUS_MAP[info.status] || 'queued',
+      t: info.finished_at ? Date.parse(info.finished_at + 'Z') : null,
+      ms: (info.started_at && info.finished_at)
+        ? (Date.parse(info.finished_at + 'Z') - Date.parse(info.started_at + 'Z'))
+        : null,
+      exit: info.exit_code,
+      logPath: info.log_path,
+      artifact: info.artifact_path,
+    };
+  }
+  // ISO 'YYYY-MM-DD HH:MM:SS' from SQLite is UTC; append Z.
+  const createdMs = api.created_at
+    ? Date.parse(api.created_at.replace(' ', 'T') + 'Z')
+    : Date.now();
+  return {
+    id: api.name,
+    dbId: api.id,
+    created: createdMs,
+    photoCount: api.n_photos || 0,
+    sizeMb: (api.n_photos || 0) * 1.8,        // rough: ~1.8 MB / iPhone JPEG
+    notes: api.notes || '',
+    stages,
+    // Measurements are populated by the fit stage (D5/D7 hookup);
+    // null = "Run fit to populate" empty state in the UI.
+    measurements: null,
+  };
+}
+
+async function fetchCaptures() {
+  const r = await fetch('/api/captures');
+  if (!r.ok) throw new Error(`/api/captures returned ${r.status}`);
+  const list = await r.json();
+  // Each list entry has summary fields; fetch details (incl. stages
+  // map) for each in parallel.
+  const detailed = await Promise.all(list.captures.map(async c => {
+    const dr = await fetch(`/api/captures/${c.id}`);
+    if (!dr.ok) throw new Error(`/api/captures/${c.id} returned ${dr.status}`);
+    return normalizeCapture(await dr.json());
+  }));
+  return detailed;
+}
+
+function App() {
+  const [captures, setCaptures] = useState([]);
+  const [loadError, setLoadError] = useState(null);
+  const [activeId, setActiveId] = useState(null);
+  const [tab, setTab] = useState('pipeline');
+  const [showNew, setShowNew] = useState(false);
+  const [showTests, setShowTests] = useState(false);
+  const active = captures.find(c => c.id === activeId);
+
+  // Per-(capture × stage) params, e.g. fit's object_id. Persists in
+  // localStorage so refreshing the page doesn't lose your tweak.
+  const [stageParamsByCapture, setStageParamsByCapture] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('polevision.stageParams') || '{}'); }
+    catch { return {}; }
+  });
+  const stageParams = activeId ? (stageParamsByCapture[activeId] || {}) : {};
+  const setStageParam = (stageId, params) => {
+    setStageParamsByCapture(s => {
+      const next = { ...s, [activeId]: { ...(s[activeId] || {}), [stageId]: params } };
+      try { localStorage.setItem('polevision.stageParams', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  // Initial data load + periodic refresh so stage transitions show up.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const cs = await fetchCaptures();
+        if (cancelled) return;
+        setCaptures(cs);
+        setLoadError(null);
+        if (cs.length && !activeId) setActiveId(cs[0].id);
+      } catch (e) {
+        if (!cancelled) setLoadError(e.message);
+      }
+    }
+    load();
+    const intervalId = setInterval(load, 5000);
+    return () => { cancelled = true; clearInterval(intervalId); };
+  }, []);
+
+  // Live logs from /api/runs/{run_id}/stream. Each capture's logs
+  // accumulate across runs; switching captures clears the panel.
+  const [logs, setLogs] = useState([]);
+  const [activeRunId, setActiveRunId] = useState(null);
+
+  // Reset logs when the active capture changes.
+  useEffect(() => { setLogs([]); setActiveRunId(null); }, [activeId]);
+
+  // Subscribe to SSE for the currently active run.
+  useEffect(() => {
+    if (!activeRunId) return;
+    const url = `/api/runs/${activeRunId}/stream`;
+    const es = new EventSource(url);
+    es.onmessage = (ev) => {
+      const t = new Date();
+      const ts = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}.${String(t.getMilliseconds()).padStart(3,'0')}`;
+      const msg = ev.data;
+      if (msg === '[done]') { es.close(); return; }
+      // Heuristic level classification for the existing LogPanel.
+      const lvl = /error|fail|traceback/i.test(msg) ? 'err'
+                : /warn/i.test(msg) ? 'warn'
+                : /^\$\s/.test(msg) ? 'dim'
+                : 'info';
+      setLogs(ls => [...ls, { ts, lvl, msg }]);
+    };
+    es.onerror = () => { es.close(); };
+    return () => es.close();
+  }, [activeRunId]);
+
+  // Run a single stage. POST /api/captures/{dbId}/run/{stage}, then
+  // attach the SSE stream and refresh capture state when done.
+  const runStage = useCallback(async (stage) => {
+    if (!active) return;
+    const params = (stageParamsByCapture[active.id] || {})[stage];
+    setLogs(ls => [...ls, {
+      ts: new Date().toLocaleTimeString('en-GB'),
+      lvl: 'dim',
+      msg: `$ POST /api/captures/${active.dbId}/run/${stage}` +
+           (params ? ` ${JSON.stringify(params)}` : ''),
+    }]);
+    try {
+      const r = await fetch(`/api/captures/${active.dbId}/run/${stage}`, {
+        method: 'POST',
+        headers: params ? { 'Content-Type': 'application/json' } : {},
+        body: params ? JSON.stringify({ params }) : undefined,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || `${r.status}`);
+      setActiveRunId(data.run_id);
+    } catch (e) {
+      setLogs(ls => [...ls, {
+        ts: new Date().toLocaleTimeString('en-GB'),
+        lvl: 'err',
+        msg: `failed to start ${stage}: ${e.message}`,
+      }]);
+    }
+  }, [active, stageParamsByCapture]);
+
+  // Cancel the active run for the active capture's given stage.
+  const cancelStage = useCallback(async (stage) => {
+    if (!active) return;
+    // Find the most recent running run for this capture+stage.
+    try {
+      const r = await fetch(`/api/captures/${active.dbId}/runs`);
+      const data = await r.json();
+      const target = data.runs.find(rr => rr.stage === stage && rr.status === 'running');
+      if (!target) return;
+      await fetch(`/api/runs/${target.id}/cancel`, { method: 'POST' });
+      setLogs(ls => [...ls, {
+        ts: new Date().toLocaleTimeString('en-GB'),
+        lvl: 'warn',
+        msg: `cancelled run #${target.id} (${stage})`,
+      }]);
+    } catch (e) {
+      setLogs(ls => [...ls, {
+        ts: new Date().toLocaleTimeString('en-GB'),
+        lvl: 'err',
+        msg: `failed to cancel ${stage}: ${e.message}`,
+      }]);
+    }
+  }, [active]);
+
+  // Run-all: chain stages sequentially, skipping already-succeeded ones.
+  const runAll = useCallback(async () => {
+    if (!active) return;
+    for (const s of ['exif','pose','sam','scale','fit']) {
+      const status = active.stages[s]?.s;
+      if (status === 'ok') continue;
+      // Trigger the run; wait for the run to leave 'running' state.
+      const r = await fetch(`/api/captures/${active.dbId}/run/${s}`, {
+        method: 'POST',
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        setLogs(ls => [...ls, {
+          ts: new Date().toLocaleTimeString('en-GB'),
+          lvl: 'err', msg: `failed to start ${s}: ${data.detail}`,
+        }]); break;
+      }
+      setActiveRunId(data.run_id);
+      // Poll until done.
+      while (true) {
+        await new Promise(res => setTimeout(res, 800));
+        const rr = await fetch(`/api/runs/${data.run_id}`);
+        const rj = await rr.json();
+        if (rj.status === 'succeeded') break;
+        if (rj.status === 'failed') return;   // stop chain on failure
+      }
+    }
+  }, [active]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.metaKey || e.ctrlKey) {
+        const tabs = ['pipeline','masks','3d','measurements','history'];
+        const n = parseInt(e.key);
+        if (n >= 1 && n <= 5) { e.preventDefault(); setTab(tabs[n-1]); }
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const i = captures.findIndex(c => c.id === activeId);
+        if (i >= 0) {
+          const next = e.key === 'ArrowDown' ? Math.min(captures.length-1, i+1) : Math.max(0, i-1);
+          setActiveId(captures[next].id);
+          e.preventDefault();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [captures, activeId]);
+
+  const overall = useMemo(() => {
+    if (!active) return { label: '—', cls: 'queued' };
+    const s = active.stages;
+    if (Object.values(s).some(x => x.s === 'err')) return { label: 'failed', cls: 'err' };
+    if (Object.values(s).some(x => x.s === 'run')) return { label: 'running', cls: 'run' };
+    if (Object.values(s).every(x => x.s === 'ok')) return { label: 'complete', cls: 'ok' };
+    return { label: 'partial', cls: 'queued' };
+  }, [active]);
+
+  const tabs = [
+    { id: 'pipeline', label: 'Pipeline', kbd: '⌘1' },
+    { id: 'masks', label: 'Masks', kbd: '⌘2' },
+    { id: '3d', label: '3D', kbd: '⌘3' },
+    { id: 'measurements', label: 'Measurements', kbd: '⌘4' },
+    { id: 'history', label: 'History', kbd: '⌘5' },
+  ];
+
+  return (
+    <div className="app">
+      <TopBar active={active} onNew={() => setShowNew(true)} onTests={() => setShowTests(true)}/>
+      <div className="main">
+        <Sidebar captures={captures} activeId={activeId} setActiveId={setActiveId} onNew={() => setShowNew(true)}/>
+        <main className="detail">
+          {!active && (
+            <div style={{padding:'48px 32px', color:'var(--text-3)', maxWidth:560}}>
+              {loadError ? (
+                <>
+                  <h2 style={{color:'var(--err)', marginTop:0}}>API error</h2>
+                  <p className="mono" style={{fontSize:12}}>{loadError}</p>
+                  <p>Is the dashboard server running? Check the terminal
+                  output of <code>python -m uvicorn app.main:app</code>.</p>
+                </>
+              ) : captures.length === 0 ? (
+                <>
+                  <h2 style={{marginTop:0}}>No captures yet</h2>
+                  <p>Drop a folder of photos under the working directory
+                  named <code>pole_xxx/</code>, or click <b>+ New capture</b>
+                  in the top bar to upload one.</p>
+                </>
+              ) : (
+                <p>Select a capture from the sidebar.</p>
+              )}
+            </div>
+          )}
+          {active && <>
+          <div className="detail-head">
+            <div className="detail-title">
+              <h1>{active.id}</h1>
+              <span className="id">id {active.id.replace('pole_','')}</span>
+              <span className={`stage-status ${overall.cls}`}><span className="pip"/>{overall.label}</span>
+            </div>
+            <div className="detail-meta">
+              <span><span className="k">created</span><span className="v">{relTime(active.created)}</span></span>
+              <span><span className="k">photos</span><span className="v">{active.photoCount}</span></span>
+              <span><span className="k">size</span><span className="v">{(active.sizeMb/1024).toFixed(2)} GB</span></span>
+              <span><span className="k">notes</span><span className="v" style={{color:'var(--text-3)'}}>{active.notes || '—'}</span></span>
+            </div>
+            <div className="tabs">
+              {tabs.map(t =>
+                <button key={t.id} className={`tab ${tab===t.id?'on':''}`} onClick={() => setTab(t.id)}>
+                  {t.label}
+                  <span className="kbd">{t.kbd}</span>
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="detail-body">
+            {tab === 'pipeline' && <PipelineTab
+              capture={active}
+              logs={logs}
+              onRunStage={runStage}
+              onRunAll={runAll}
+              onCancelStage={cancelStage}
+              stageParams={stageParams}
+              setStageParams={setStageParam}/>}
+            {tab === 'masks' && <MasksTab capture={active}/>}
+            {tab === '3d' && <ThreeDTab capture={active}/>}
+            {tab === 'measurements' && <MeasurementsTab capture={active}/>}
+            {tab === 'history' && <HistoryTab capture={active}/>}
+          </div>
+          </>}
+        </main>
+      </div>
+      {showNew && <NewCaptureModal
+        onClose={() => setShowNew(false)}
+        onCreate={async (created) => {
+          setShowNew(false);
+          // Refetch captures, switch to the new one, kick off EXIF.
+          const cs = await fetchCaptures();
+          setCaptures(cs);
+          const fresh = cs.find(c => c.id === created.name);
+          if (fresh) {
+            setActiveId(fresh.id);
+            try {
+              const r = await fetch(
+                `/api/captures/${fresh.dbId}/run/exif`, {method:'POST'},
+              );
+              const data = await r.json();
+              if (r.ok) setActiveRunId(data.run_id);
+            } catch (e) { /* surfaced in next refresh */ }
+          }
+        }}/>}
+      {showTests && <TestsModal onClose={() => setShowTests(false)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
