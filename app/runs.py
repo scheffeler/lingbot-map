@@ -77,12 +77,16 @@ def build_stage_command(
             "--image-folder", folder, "--output", f"{name}.ply",
         ]
     if stage == "sam":
-        return [
+        cmd = [
             "modal", "run", "scripts/phase1_sam_imageset.py",
             "--image-folder", folder,
             "--output", f"{name}.masks.npz",
             "--preview", f"{name}.masks_preview.jpg",
         ]
+        text = p.get("text")
+        if text:
+            cmd.extend(["--text", str(text)])
+        return cmd
     if stage == "scale":
         cmd = [
             sys.executable, "scripts/scale_solver.py",
@@ -96,6 +100,7 @@ def build_stage_command(
     if stage == "fit":
         object_id = int(p.get("object_id", 0))
         bootstrap = int(p.get("bootstrap", 0))
+        diameter_heights = p.get("diameter_at_heights")
         cmd = [
             sys.executable, "scripts/fit_pole_axis.py",
             "--masks", f"{name}.masks.npz",
@@ -107,6 +112,21 @@ def build_stage_command(
         ]
         if bootstrap > 0:
             cmd.extend(["--bootstrap", str(bootstrap)])
+        if diameter_heights:
+            if isinstance(diameter_heights, (list, tuple)):
+                heights_str = ",".join(str(float(h)) for h in diameter_heights)
+            else:
+                heights_str = str(diameter_heights)
+            cmd.extend(["--diameter-at-heights", heights_str])
+        attachment_objects = p.get("attachment_objects")
+        if attachment_objects:
+            if isinstance(attachment_objects, (list, tuple)):
+                # Accept ["crossarm=0","wire=1"] or [0, 1].
+                tokens = [str(x) for x in attachment_objects]
+                arg = ",".join(tokens)
+            else:
+                arg = str(attachment_objects)
+            cmd.extend(["--attachment-objects", arg])
         return cmd
     raise ValueError(f"Unknown stage: {stage}")
 

@@ -208,3 +208,29 @@ def test_capture_detail_reflects_run_status(client, temp_workspace, monkeypatch)
         time.sleep(0.05)
     detail = tc.get(f"/api/captures/{cap_id}").json()
     assert detail["stages"]["exif"]["status"] == "succeeded"
+
+
+def test_sam_command_includes_text_when_param_given():
+    """T7.3: when params has `text`, build_stage_command for `sam`
+    must pass it through as the CLI's --text flag so the user-defined
+    SAM prompt list reaches phase1_sam_imageset.py."""
+    from app import runs
+    cap = {"name": "pole_001", "folder_path": "/tmp/pole_001"}
+    cmd = runs.build_stage_command(
+        "sam", cap,
+        params={"text": "utility pole, crossarm, transformer"},
+    )
+    assert "--text" in cmd, f"--text not in {cmd}"
+    idx = cmd.index("--text")
+    assert cmd[idx + 1] == "utility pole, crossarm, transformer"
+
+
+def test_sam_command_omits_text_when_no_param():
+    """Without a `text` param, the command must not pass --text — the
+    SAM script's own default ('utility pole') then kicks in."""
+    from app import runs
+    cap = {"name": "pole_001", "folder_path": "/tmp/pole_001"}
+    cmd = runs.build_stage_command("sam", cap, params=None)
+    assert "--text" not in cmd
+    cmd2 = runs.build_stage_command("sam", cap, params={})
+    assert "--text" not in cmd2

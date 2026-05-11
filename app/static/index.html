@@ -715,7 +715,7 @@ function StageDots({ stages }) {
   );
 }
 
-function CaptureCard({ c, active, onClick }) {
+function CaptureCard({ c, active, onClick, unitSystem = 'metric' }) {
   const m = c.measurements;
   return (
     <div className={`cap-card ${active ? 'active' : ''}`} onClick={onClick}>
@@ -727,7 +727,7 @@ function CaptureCard({ c, active, onClick }) {
       <div className={`cap-summary ${m ? '' : 'empty'}`}>
         {m ? (
           <>
-            <span>{m.height.toFixed(2)} m</span>
+            <span>{formatUnit(m.height, 'height_m', unitSystem)}</span>
             <span className="sep">•</span>
             <span>{m.lean.toFixed(1)}° lean</span>
           </>
@@ -739,7 +739,7 @@ function CaptureCard({ c, active, onClick }) {
   );
 }
 
-function Sidebar({ captures, activeId, setActiveId, onNew }) {
+function Sidebar({ captures, activeId, setActiveId, onNew, unitSystem = 'metric' }) {
   const [filter, setFilter] = useState('all');
   const [q, setQ] = useState('');
 
@@ -781,7 +781,9 @@ function Sidebar({ captures, activeId, setActiveId, onNew }) {
             Drop a folder of photos to begin.
           </div>
         ) : list.map(c =>
-          <CaptureCard key={c.id} c={c} active={c.id === activeId} onClick={() => setActiveId(c.id)}/>
+          <CaptureCard key={c.id} c={c} active={c.id === activeId}
+                       onClick={() => setActiveId(c.id)}
+                       unitSystem={unitSystem}/>
         )}
       </div>
 
@@ -794,7 +796,7 @@ function Sidebar({ captures, activeId, setActiveId, onNew }) {
 }
 
 /* ----------------------------- Top bar ----------------------------- */
-function TopBar({ active, onNew, onTests }) {
+function TopBar({ active, onNew, onTests, onSettings }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -817,7 +819,8 @@ function TopBar({ active, onNew, onTests }) {
         <button className="btn ghost"><Icon.refresh/> Sync</button>
         <button className="btn" onClick={onTests}><Icon.test/> Run tests</button>
         <button className="btn primary" onClick={onNew}><Icon.plus/> New capture</button>
-        <button className="btn icon-only ghost" title="Settings"><Icon.gear/></button>
+        <button className="btn icon-only ghost" title="Settings"
+                onClick={onSettings}><Icon.gear/></button>
       </div>
     </header>
   );
@@ -851,20 +854,56 @@ function StageCard({ idx, stage, info, onRun, onCancel, params, setParams }) {
         ) : (
           <div className="stage-row"><span className="k">artifact</span><span className="v">{stage.s === 'ok' ? `${info.id}.json` : '—'}</span></div>
         )}
-        {info.id === 'fit' && (
-          <div className="stage-row" style={{paddingTop: 6}}>
-            <span className="k">object_id</span>
-            <input
-              type="number" min="0" max="20"
-              value={params?.object_id ?? 0}
-              onChange={e => setParams?.({ ...(params || {}), object_id: parseInt(e.target.value, 10) || 0 })}
-              disabled={stage.s === 'run'}
-              style={{width: 60, height: 22, padding: '0 6px',
-                       background:'var(--bg-3)', border:'1px solid var(--line-2)',
-                       borderRadius: 3, fontFamily:'var(--mono)', fontSize: 12,
-                       color: 'var(--text)'}}/>
-          </div>
-        )}
+        {info.id === 'fit' && (() => {
+          const inputStyle = {
+            height: 22, padding: '0 6px',
+            background: 'var(--bg-3)', border: '1px solid var(--line-2)',
+            borderRadius: 3, fontFamily: 'var(--mono)', fontSize: 12,
+            color: 'var(--text)',
+          };
+          const setField = (k, v) => setParams?.({ ...(params || {}), [k]: v });
+          return (
+            <>
+              <div className="stage-row" style={{paddingTop: 6}}>
+                <span className="k">object_id</span>
+                <input type="number" min="0" max="20"
+                  value={params?.object_id ?? 0}
+                  onChange={e => setField('object_id', parseInt(e.target.value, 10) || 0)}
+                  disabled={stage.s === 'run'}
+                  style={{...inputStyle, width: 60}}/>
+              </div>
+              <div className="stage-row">
+                <span className="k">bootstrap</span>
+                <input type="number" min="0" max="2000" step="50"
+                  value={params?.bootstrap ?? 0}
+                  onChange={e => setField('bootstrap', parseInt(e.target.value, 10) || 0)}
+                  disabled={stage.s === 'run'}
+                  title="Bootstrap iterations for height/lean CI; 0 disables, 200 typical"
+                  style={{...inputStyle, width: 70}}/>
+              </div>
+              <div className="stage-row">
+                <span className="k">diameters @</span>
+                <input type="text"
+                  placeholder="1.5,3.0,5.0"
+                  value={params?.diameter_at_heights ?? ''}
+                  onChange={e => setField('diameter_at_heights', e.target.value)}
+                  disabled={stage.s === 'run'}
+                  title="Comma-separated metres above pole base"
+                  style={{...inputStyle, width: 130}}/>
+              </div>
+              <div className="stage-row">
+                <span className="k">attachments</span>
+                <input type="text"
+                  placeholder="crossarm=1,wire=2"
+                  value={params?.attachment_objects ?? ''}
+                  onChange={e => setField('attachment_objects', e.target.value)}
+                  disabled={stage.s === 'run'}
+                  title="Comma-separated 'name=object_index' pairs from the masks NPZ"
+                  style={{...inputStyle, width: 160}}/>
+              </div>
+            </>
+          );
+        })()}
         {stage.s === 'run' && (
           <div className="stage-bar"><i style={{width: `${(stage.progress || 0) * 100}%`}}/></div>
         )}
@@ -1185,14 +1224,15 @@ function MasksTabLegacy({ capture }) {
 // reachable via the "Open detailed viewer" button — it triggers the
 // /api/captures/{id}/view-3d endpoint and pops localhost:8080 in a
 // new tab.
-function ThreeDTab({ capture }) {
+function ThreeDTab({ capture, unitSystem = 'metric' }) {
   const mountRef = useRef(null);
   const renderRef = useRef(null);  // imperative handle: { setLayer, dispose, ... }
   const [error, setError] = useState(null);
   const [progress, setProgress] = useState(null);   // 'scene' | 'cloud' | 'done'
   const [layers, setLayers] = useState({
     cloud: true, frustums: true, frustumImages: true,
-    axis: true, groundPlane: false, alignGround: true,
+    axis: true, diameters: true, attachments: true,
+    groundPlane: false, alignGround: true,
     orbitTarget: true,
   });
   const [pointSize, setPointSize] = useState(0.005);
@@ -1241,10 +1281,13 @@ function ThreeDTab({ capture }) {
       onError: setError,
       initialLayers: layers,
       initialPointSize: pointSize,
+      unitSystem,
     });
     renderRef.current = handle;
     return () => { handle.dispose(); renderRef.current = null; };
-  }, [capture.dbId, capture.stages.pose?.s]);
+    // unitSystem in deps so flipping units re-mounts the scene with
+    // freshly-formatted labels. Re-mount completes < 2s on pole_001.
+  }, [capture.dbId, capture.stages.pose?.s, unitSystem]);
 
   // Push layer toggles + point size into the scene without
   // remounting.
@@ -1400,6 +1443,8 @@ function ThreeDTab({ capture }) {
             ['frustums', 'Camera frustums'],
             ['frustumImages', '  · with frame images'],
             ['axis', 'Pole axis + endpoints'],
+            ['diameters', 'Diameter rings'],
+            ['attachments', 'Attachment markers'],
             ['groundPlane', 'Ground plane'],
             ['alignGround', 'Align to vertical'],
             ['orbitTarget', 'Orbit target dot'],
@@ -1428,7 +1473,8 @@ function ThreeDTab({ capture }) {
 // rebuild every render. Returns a handle the React component can use
 // to push layer toggles / point size and to dispose of WebGL state.
 function mountThreeScene({ mount, capture, onProgress, onError,
-                            initialLayers, initialPointSize }) {
+                            initialLayers, initialPointSize,
+                            unitSystem = 'metric' }) {
   onError(null);
   onProgress('scene');
 
@@ -1476,9 +1522,12 @@ function mountThreeScene({ mount, capture, onProgress, onError,
   const cloudGroup = new THREE.Group();
   const frustumGroup = new THREE.Group();
   const axisGroup = new THREE.Group();
+  const diametersGroup = new THREE.Group();
+  const attachmentsGroup = new THREE.Group();
   const planeGroup = new THREE.Group();
   const gridGroup = new THREE.Group();
-  root.add(cloudGroup, frustumGroup, axisGroup, planeGroup, gridGroup);
+  root.add(cloudGroup, frustumGroup, axisGroup, diametersGroup,
+           attachmentsGroup, planeGroup, gridGroup);
 
   // Disposal book-keeping.
   const disposables = [];
@@ -1632,6 +1681,8 @@ function mountThreeScene({ mount, capture, onProgress, onError,
     cloudGroup.visible = !!layers.cloud;
     frustumGroup.visible = !!layers.frustums;
     axisGroup.visible = !!layers.axis;
+    diametersGroup.visible = layers.diameters !== false;
+    attachmentsGroup.visible = layers.attachments !== false;
     planeGroup.visible = !!layers.groundPlane;
     gridGroup.visible = !!layers.alignGround;
     // Frustum textures live on child mesh nodes tagged ".isFrustumImage".
@@ -1842,7 +1893,7 @@ function mountThreeScene({ mount, capture, onProgress, onError,
       return new THREE.CSS2DObject(div);
     };
     const heightTxt = (pole.height_m != null)
-      ? `top  ${pole.height_m.toFixed(2)} m`
+      ? `top  ${formatUnit(pole.height_m, 'height_m', unitSystem)}`
       : (pole.height_model_units != null
          ? `top  ${pole.height_model_units.toFixed(3)} units`
          : 'top');
@@ -1852,6 +1903,107 @@ function mountThreeScene({ mount, capture, onProgress, onError,
     const botLabel = mkLabel('bottom (0 m)');
     botLabel.position.copy(bot).add(new THREE.Vector3(0, 0.06, 0));
     axisGroup.add(botLabel);
+  }
+
+  function buildDiameters(pole, metricScale) {
+    if (!pole || !pole.bottom || !pole.axis_dir) return;
+    const diameters = pole.diameters || [];
+    if (diameters.length === 0 || !metricScale) return;
+    const bot = new THREE.Vector3(...pole.bottom);
+    const axisDir = new THREE.Vector3(...pole.axis_dir).normalize();
+    const labelStyle = {
+      background: 'rgba(20,20,23,0.85)',
+      color: '#ffdc64',
+      padding: '2px 6px',
+      borderRadius: '3px',
+      font: '11px JetBrains Mono, monospace',
+      whiteSpace: 'nowrap',
+      border: '1px solid rgba(255,220,100,0.35)',
+    };
+    for (const d of diameters) {
+      // Cylinder centred at the measured height, radius = d/2 in
+      // model units, height = small fixed slice (12 cm) so the
+      // measurement reads like a "ring".
+      const radiusUnits = (d.diameter_m * 0.5) / metricScale;
+      const sliceHeightUnits = 0.12 / metricScale;
+      const offsetUnits = d.height_m / metricScale;
+      const centre = bot.clone().addScaledVector(axisDir, offsetUnits);
+      const geom = new THREE.CylinderGeometry(
+        radiusUnits, radiusUnits, sliceHeightUnits, 24, 1, true);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffb84d, transparent: true, opacity: 0.75,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.copy(centre);
+      // CylinderGeometry's local +Y is its axis. Rotate so that
+      // matches the pole's axisDir.
+      const localUp = new THREE.Vector3(0, 1, 0);
+      const quat = new THREE.Quaternion().setFromUnitVectors(localUp, axisDir);
+      mesh.quaternion.copy(quat);
+      diametersGroup.add(mesh);
+      remember(geom); remember(mat);
+
+      const div = document.createElement('div');
+      div.textContent = `Ø ${formatUnit(d.diameter_m, 'diameter@m_m', unitSystem)} @ ${formatUnit(d.height_m, 'height_m', unitSystem)}`;
+      Object.assign(div.style, labelStyle);
+      const label = new THREE.CSS2DObject(div);
+      // Place the label at the cylinder's "side" so it sits beside
+      // the ring rather than on top of the axis line.
+      const sideOffset = new THREE.Vector3(1, 0, 0)
+        .multiplyScalar(radiusUnits + 0.04);
+      label.position.copy(centre).add(sideOffset);
+      diametersGroup.add(label);
+    }
+  }
+
+  function buildAttachments(pole, metricScale) {
+    if (!pole || !pole.bottom || !pole.axis_dir) return;
+    const attachments = pole.attachments || [];
+    if (attachments.length === 0 || !metricScale) return;
+    const bot = new THREE.Vector3(...pole.bottom);
+    const axisDir = new THREE.Vector3(...pole.axis_dir).normalize();
+    const labelStyle = {
+      background: 'rgba(20,20,23,0.85)',
+      color: '#80e0ff',
+      padding: '2px 6px',
+      borderRadius: '3px',
+      font: '11px JetBrains Mono, monospace',
+      whiteSpace: 'nowrap',
+      border: '1px solid rgba(128,224,255,0.35)',
+    };
+    for (const a of attachments) {
+      const offsetUnits = a.height_m / metricScale;
+      const centre = bot.clone().addScaledVector(axisDir, offsetUnits);
+      // Attachment marker: a torus ring whose axis is the pole axis,
+      // radius 1.2× the typical pole radius (~25 cm metric → 0.30 m
+      // ring radius).
+      const ringRadiusUnits = 0.30 / metricScale;
+      const tubeRadiusUnits = 0.025 / metricScale;
+      const geom = new THREE.TorusGeometry(
+        ringRadiusUnits, tubeRadiusUnits, 8, 32);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x80e0ff, transparent: true, opacity: 0.85,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.copy(centre);
+      // TorusGeometry lies in its local XY plane (axis = +Z). Rotate
+      // so that local +Z matches axisDir.
+      const localAxis = new THREE.Vector3(0, 0, 1);
+      const quat = new THREE.Quaternion().setFromUnitVectors(localAxis, axisDir);
+      mesh.quaternion.copy(quat);
+      attachmentsGroup.add(mesh);
+      remember(geom); remember(mat);
+
+      const div = document.createElement('div');
+      div.textContent = `${a.name || 'attachment'} @ ${formatUnit(a.height_m, 'attachment_x_height_m', unitSystem)}`;
+      Object.assign(div.style, labelStyle);
+      const label = new THREE.CSS2DObject(div);
+      label.position.copy(centre)
+        .add(new THREE.Vector3(0, 0, 0).addScaledVector(axisDir, 0.0))
+        .add(new THREE.Vector3(0.05, 0, 0));
+      attachmentsGroup.add(label);
+    }
   }
 
   function buildGroundPlane(plane, metricScale) {
@@ -1958,6 +2110,8 @@ function mountThreeScene({ mount, capture, onProgress, onError,
       const sceneData = await sr.json();
       buildFrustums(sceneData.cameras, sceneData.image_hw);
       buildPoleAxis(sceneData.pole, sceneData.metric_scale);
+      buildDiameters(sceneData.pole, sceneData.metric_scale);
+      buildAttachments(sceneData.pole, sceneData.metric_scale);
       buildGroundPlane(sceneData.ground_plane, sceneData.metric_scale);
       applyVisibility();
 
@@ -2305,7 +2459,7 @@ function Meas({ name, val, sig, unit, source, runId, sparkVals, info, empty }) {
   );
 }
 
-function MeasurementsTab({ capture }) {
+function MeasurementsTab({ capture, unitSystem = 'metric' }) {
   const [meas, setMeas] = useState(null);
   const [error, setError] = useState(null);
 
@@ -2356,17 +2510,17 @@ function MeasurementsTab({ capture }) {
       <div className="meas-summary">
         <div>
           <div className="lab">Height</div>
-          <div className="big">{fmtVal(height?.value, 2)}<span className="unit">m</span></div>
+          <div className="big">{formatUnit(height?.value, 'height_m', unitSystem)}</div>
           <div className="small">{height ? (fmtSig(height.sigma, 2) || 'point estimate · no CI yet') : 'run fit to populate'}</div>
         </div>
         <div>
           <div className="lab">Lean</div>
-          <div className="big">{fmtVal(lean?.value, 1)}<span className="unit">°</span></div>
+          <div className="big">{formatUnit(lean?.value, 'lean_deg', unitSystem)}</div>
           <div className="small">{lean ? (lean.source || '') : '—'}</div>
         </div>
         <div>
           <div className="lab">Scale</div>
-          <div className="big">{fmtVal(scale?.value, 2)}<span className="unit">m/u</span></div>
+          <div className="big">{formatUnit(scale?.value, 'metric_scale', unitSystem)}</div>
           <div className="small">{scale ? (fmtSig(scale.sigma, 2) || scale.source || 'fixed') : '—'}</div>
         </div>
         <div>
@@ -2381,37 +2535,92 @@ function MeasurementsTab({ capture }) {
         <span className="right">{meas.length} populated · source: artifacts on disk</span>
       </div>
       <div className="meas-grid">
-        {meas.map(m => (
-          <Meas key={m.kind}
+        {meas.map(m => {
+          const formatted = typeof m.value === 'number'
+            ? formatUnit(m.value, m.kind, unitSystem)
+            : String(m.value);
+          // formatUnit already includes the unit suffix; split it off
+          // so the existing Meas component renders the unit pill cleanly.
+          const parts = formatted.match(/^(.+?)\s+(.+)$/);
+          const valOnly = parts ? parts[1] : formatted;
+          const unitOnly = parts ? parts[2] : '';
+          return <Meas key={m.kind}
                 name={prettyKind(m.kind)}
-                val={typeof m.value === 'number' ? m.value.toFixed(unitDigits(m.kind)) : String(m.value)}
+                val={valOnly}
                 sig={m.sigma}
-                unit={m.unit}
+                unit={unitOnly || m.unit}
                 source={m.source}
                 runId=""
                 info={m.info?.method || m.source}
-                sparkVals={null}/>
-        ))}
+                sparkVals={null}/>;
+        })}
       </div>
     </>
   );
 }
 
 function prettyKind(k) {
-  return ({
+  const base = {
     height_m: 'Height',
     lean_deg: 'Lean (vs ground normal)',
     lean_cam_up_deg: 'Lean (vs camera-up)',
     metric_scale: 'Metric scale',
-  }[k]) || k;
+  }[k];
+  if (base) return base;
+  let m = k.match(/^diameter@(.+)m_m$/);
+  if (m) return `Diameter @ ${m[1]} m`;
+  m = k.match(/^attachment_(.+)_height_m$/);
+  if (m) {
+    const name = m[1].replace(/_/g, ' ');
+    return `${name.charAt(0).toUpperCase() + name.slice(1)} height`;
+  }
+  return k;
 }
 function unitDigits(k) {
-  return ({
+  const base = {
     height_m: 2,
     lean_deg: 1,
     lean_cam_up_deg: 1,
     metric_scale: 4,
-  }[k]) ?? 3;
+  }[k];
+  if (base !== undefined) return base;
+  if (/^diameter@/.test(k)) return 3;
+  if (/^attachment_/.test(k)) return 2;
+  return 3;
+}
+
+/* T8.1: unit conversion. Backend always sends metres; the UI decides
+   how to render based on the user's Settings choice. */
+const M_TO_FT = 3.28084;
+
+function formatLength(meters, kind, system) {
+  if (meters == null || Number.isNaN(meters)) return '—';
+  if (system !== 'imperial') {
+    return meters.toFixed(unitDigits(kind || 'height_m')) + ' m';
+  }
+  // Imperial: per-kind smart formatting.
+  if (kind && /diameter/i.test(kind)) {
+    return (meters * M_TO_FT * 12).toFixed(1) + ' in';
+  }
+  // Heights, attachment heights, generic lengths → ft' in".
+  const totalFt = meters * M_TO_FT;
+  let ft = Math.floor(totalFt);
+  let inches = Math.round((totalFt - ft) * 12);
+  if (inches === 12) { ft += 1; inches = 0; }
+  return `${ft}' ${inches}"`;
+}
+
+function formatUnit(value, kind, system) {
+  // Wrapper for non-length values: lean stays in degrees, scale stays
+  // in m/model_unit (metric-only quantity that has no imperial form).
+  if (value == null || Number.isNaN(value)) return '—';
+  if (kind === 'lean_deg' || kind === 'lean_cam_up_deg') {
+    return value.toFixed(1) + '°';
+  }
+  if (kind === 'metric_scale') {
+    return value.toFixed(4) + ' m/u';
+  }
+  return formatLength(value, kind, system);
 }
 
 /* ----------------------------- History tab ----------------------------- */
@@ -2679,6 +2888,98 @@ function TestsModal({ onClose }) {
   );
 }
 
+/* ----------------------------- Settings modal ----------------------------- */
+const DEFAULT_SAM_PROMPTS =
+  'utility pole, crossarm, transformer, insulator, electrical bracket, wire';
+
+function readSamPrompts() {
+  try {
+    return localStorage.getItem('polevision.samPrompts') || DEFAULT_SAM_PROMPTS;
+  } catch { return DEFAULT_SAM_PROMPTS; }
+}
+function readUnitSystem() {
+  try {
+    return localStorage.getItem('polevision.unitSystem') || 'metric';
+  } catch { return 'metric'; }
+}
+
+function SettingsModal({ onClose, onSave }) {
+  const [prompts, setPrompts] = useState(() => readSamPrompts());
+  const [unitSystem, setUnitSystem] = useState(() => readUnitSystem());
+
+  const save = () => {
+    try {
+      localStorage.setItem('polevision.samPrompts', prompts);
+      localStorage.setItem('polevision.unitSystem', unitSystem);
+    } catch {}
+    onSave?.({ prompts, unitSystem });
+    onClose?.();
+  };
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{width: 620}} onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Settings</h2>
+          <button className="btn ghost icon-only" onClick={onClose}><Icon.x/></button>
+        </div>
+        <div className="modal-body">
+          <div style={{marginBottom: 18}}>
+            <div style={{fontSize: 12, color: 'var(--text-2)',
+                         marginBottom: 4, fontWeight: 500}}>SAM 3.1 prompts</div>
+            <div style={{fontSize: 11, color: 'var(--text-3)', marginBottom: 8}}>
+              Comma-separated object classes. Each becomes one tracked object
+              in the SAM masks NPZ. Sent on every SAM stage run.
+            </div>
+            <textarea
+              value={prompts}
+              onChange={e => setPrompts(e.target.value)}
+              rows={3}
+              style={{width: '100%', boxSizing: 'border-box',
+                      background: 'var(--bg-3)', color: 'var(--text)',
+                      border: '1px solid var(--line-2)', borderRadius: 3,
+                      padding: 8, fontFamily: 'var(--mono)', fontSize: 12,
+                      resize: 'vertical'}}/>
+            <button
+              type="button"
+              onClick={() => setPrompts(DEFAULT_SAM_PROMPTS)}
+              style={{marginTop: 6, fontSize: 11, color: 'var(--text-3)',
+                      background: 'transparent', border: 'none',
+                      cursor: 'pointer', padding: 0}}>
+              Reset to default
+            </button>
+          </div>
+          <div>
+            <div style={{fontSize: 12, color: 'var(--text-2)',
+                         marginBottom: 4, fontWeight: 500}}>Units</div>
+            <div style={{fontSize: 11, color: 'var(--text-3)', marginBottom: 8}}>
+              Heights and attachment heights show as feet/inches in imperial;
+              diameters in inches. Lean stays in degrees.
+            </div>
+            {[
+              ['metric', 'Metric (m, mm)'],
+              ['imperial', "Imperial (ft' in\", in)"],
+            ].map(([k, label]) =>
+              <label key={k} style={{display: 'flex', alignItems: 'center',
+                                     gap: 8, padding: '4px 0',
+                                     cursor: 'pointer'}}>
+                <input type="radio" name="units" value={k}
+                       checked={unitSystem === k}
+                       onChange={() => setUnitSystem(k)}/>
+                <span style={{fontSize: 12}}>{label}</span>
+              </label>
+            )}
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={save}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------- App ----------------------------- */
 // Map a backend capture (api/captures/{id} response) to the shape
 // the rest of the dashboard expects. The design components were
@@ -2743,6 +3044,8 @@ function App() {
   const [tab, setTab] = useState('pipeline');
   const [showNew, setShowNew] = useState(false);
   const [showTests, setShowTests] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [unitSystem, setUnitSystem] = useState(() => readUnitSystem());
   const active = captures.find(c => c.id === activeId);
 
   // Per-(capture × stage) params, e.g. fit's object_id. Persists in
@@ -2812,7 +3115,13 @@ function App() {
   // attach the SSE stream and refresh capture state when done.
   const runStage = useCallback(async (stage) => {
     if (!active) return;
-    const params = (stageParamsByCapture[active.id] || {})[stage];
+    let params = (stageParamsByCapture[active.id] || {})[stage];
+    // SAM stage: pull the global prompt list from Settings and merge
+    // it in. Per-capture stage params can still override 'text'.
+    if (stage === 'sam') {
+      const samPrompts = readSamPrompts();
+      params = { text: samPrompts, ...(params || {}) };
+    }
     setLogs(ls => [...ls, {
       ts: new Date().toLocaleTimeString('en-GB'),
       lvl: 'dim',
@@ -2930,9 +3239,12 @@ function App() {
 
   return (
     <div className="app">
-      <TopBar active={active} onNew={() => setShowNew(true)} onTests={() => setShowTests(true)}/>
+      <TopBar active={active} onNew={() => setShowNew(true)}
+              onTests={() => setShowTests(true)}
+              onSettings={() => setShowSettings(true)}/>
       <div className="main">
-        <Sidebar captures={captures} activeId={activeId} setActiveId={setActiveId} onNew={() => setShowNew(true)}/>
+        <Sidebar captures={captures} activeId={activeId} setActiveId={setActiveId}
+                 onNew={() => setShowNew(true)} unitSystem={unitSystem}/>
         <main className="detail">
           {!active && (
             <div style={{padding:'48px 32px', color:'var(--text-3)', maxWidth:560}}>
@@ -2987,8 +3299,8 @@ function App() {
               stageParams={stageParams}
               setStageParams={setStageParam}/>}
             {tab === 'masks' && <MasksTab capture={active}/>}
-            {tab === '3d' && <ThreeDTab capture={active}/>}
-            {tab === 'measurements' && <MeasurementsTab capture={active}/>}
+            {tab === '3d' && <ThreeDTab capture={active} unitSystem={unitSystem}/>}
+            {tab === 'measurements' && <MeasurementsTab capture={active} unitSystem={unitSystem}/>}
             {tab === 'history' && <HistoryTab capture={active}/>}
           </div>
           </>}
@@ -3014,6 +3326,9 @@ function App() {
           }
         }}/>}
       {showTests && <TestsModal onClose={() => setShowTests(false)}/>}
+      {showSettings && <SettingsModal
+                          onClose={() => setShowSettings(false)}
+                          onSave={({unitSystem: u}) => setUnitSystem(u)}/>}
     </div>
   );
 }

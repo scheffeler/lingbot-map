@@ -50,3 +50,53 @@ def test_threed_tab_includes_three_js_cdn(client):
     )
     assert "PLYLoader" in r.text, "Expected PLYLoader script tag"
     assert "OrbitControls" in r.text, "Expected OrbitControls script tag"
+
+
+def test_dashboard_includes_settings_modal_hooks(client):
+    """T7.5: Settings modal exists, gear icon has an onClick, and the
+    two persistent localStorage keys are referenced."""
+    body = client.get("/").text
+    assert "SettingsModal" in body, "SettingsModal component missing"
+    assert "polevision.samPrompts" in body, (
+        "Settings modal not wired to localStorage.samPrompts"
+    )
+    assert "polevision.unitSystem" in body, (
+        "Settings modal not wired to localStorage.unitSystem"
+    )
+
+
+def test_dashboard_includes_unit_formatter(client):
+    """T8.1: formatLength helper present with the imperial branches."""
+    body = client.get("/").text
+    assert "function formatLength" in body, "formatLength helper missing"
+    assert "3.28084" in body, "metres-to-feet conversion factor missing"
+    assert "' in'" in body, "inches suffix missing"
+
+
+def test_dashboard_uses_formatunit_in_measurements_and_3d(client):
+    """T8.3: the 6 display sites route through formatUnit so unit
+    flips actually take effect."""
+    body = client.get("/").text
+    assert "formatUnit(height?.value" in body, (
+        "Measurements summary tile not using formatUnit"
+    )
+    assert "formatUnit(pole.height_m" in body, (
+        "3D pole-top label not using formatUnit"
+    )
+    assert "formatUnit(d.diameter_m" in body, (
+        "3D diameter ring label not using formatUnit"
+    )
+
+
+def test_threed_tab_has_diameter_and_attachment_hooks(client):
+    """S5: 3D viewer renders diameter rings + attachment markers.
+    Smoke-check the JS still references the build hooks and layer
+    toggles, so a future edit can't silently drop them."""
+    r = client.get("/")
+    body = r.text
+    assert "buildDiameters" in body, "missing diameter ring builder"
+    assert "buildAttachments" in body, "missing attachment marker builder"
+    assert "diametersGroup" in body, "diameter group not mounted"
+    assert "attachmentsGroup" in body, "attachment group not mounted"
+    assert "Diameter rings" in body, "Layers GUI missing diameter toggle"
+    assert "Attachment markers" in body, "Layers GUI missing attachment toggle"

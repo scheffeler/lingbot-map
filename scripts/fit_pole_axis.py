@@ -252,6 +252,291 @@ def bootstrap_axis_fit(
     }
 
 
+def _project_world_to_pixel(P: np.ndarray, K: np.ndarray,
+                            E_c2w: np.ndarray) -> tuple[np.ndarray | None, float]:
+    """Project a world point through a c2w extrinsic + intrinsic.
+    Returns (pixel_uv, depth) in the image plane the intrinsic
+    matches (i.e., 518x518 pad space here). None if behind camera."""
+    R = E_c2w[:3, :3]
+    t = E_c2w[:3, 3]
+    P_cam = R.T @ (P - t)
+    if P_cam[2] <= 1e-6:
+        return None, float(P_cam[2])
+    p = K @ P_cam
+    return np.array([p[0] / p[2], p[1] / p[2]], dtype=np.float64), float(P_cam[2])
+
+
+def _pad518_uv_to_native(p_uv_pad, native_hw, target=518, patch=14):
+    """Inverse of native_to_pad518: map a pixel from the 518x518 pad
+    image back to the native cv2 mask resolution."""
+    Hn, Wn = native_hw
+    if Wn >= Hn:
+        new_w = target
+        new_h = round(Hn * (target / Wn) / patch) * patch
+        pad_top = (target - new_h) // 2
+        u = p_uv_pad[0] * (Wn / new_w)
+        v = (p_uv_pad[1] - pad_top) * (Hn / new_h)
+    else:
+        new_h = target
+        new_w = round(Wn * (target / Hn) / patch) * patch
+        pad_left = (target - new_w) // 2
+        u = (p_uv_pad[0] - pad_left) * (Wn / new_w)
+        v = p_uv_pad[1] * (Hn / new_h)
+    return np.array([u, v], dtype=np.float64)
+
+
+def _diameter_at_one_frame(
+    mask: np.ndarray, K: np.ndarray, E: np.ndarray,
+    native_hw,
+    P_h_world: np.ndarray, axis_dir: np.ndarray,
+) -> float | None:
+    """Measure metric diameter at the world point P_h on a frame's
+    mask. Returns None if the projected point falls outside the mask
+    or the perpendicular slice has no mask pixels.
+
+    Procedure:
+      1. Project P_h to pixel space (518 pad) → uv_pad.
+      2. Project a second axis point (P_h + ε·axis_dir) to get the
+         axis direction in pixel space; perpendicular = its 90° rotation.
+      3. Convert uv_pad → uv_native (mask resolution).
+      4. At uv_native, sample the mask along the perpendicular direction;
+         find the leftmost and rightmost True pixel.
+      5. Convert those two native edges back to pad space, build world
+         rays, and intersect each with the plane (n=axis_dir, d=axis_dir·P_h).
+      6. Diameter = ||left_world - right_world||.
+    """
+    uv_pad, depth = _project_world_to_pixel(P_h_world, K, E)
+    if uv_pad is None or depth <= 0:
+        return None
+    P_h2 = P_h_world + axis_dir * 0.1
+    uv_pad2, _ = _project_world_to_pixel(P_h2, K, E)
+    if uv_pad2 is None:
+        return None
+    axis_pix = uv_pad2 - uv_pad
+    axis_pix_norm = np.linalg.norm(axis_pix)
+    if axis_pix_norm < 1e-3:
+        return None
+    axis_pix = axis_pix / axis_pix_norm
+    perp_pix_pad = np.array([-axis_pix[1], axis_pix[0]], dtype=np.float64)
+
+    uv_native = _pad518_uv_to_native(uv_pad, native_hw)
+    Hn, Wn = native_hw
+    u0, v0 = uv_native
+    if not (0 <= u0 < Wn and 0 <= v0 < Hn):
+        return None
+
+    # The native↔pad mapping might rotate/scale axes slightly; recompute
+    # perpendicular in native space by mapping (uv_pad ± 1·perp) back.
+    a_pad = uv_pad + perp_pix_pad
+    a_native = _pad518_uv_to_native(a_pad, native_hw)
+    perp_native = a_native - uv_native
+    perp_norm = np.linalg.norm(perp_native)
+    if perp_norm < 1e-6:
+        return None
+    perp_native = perp_native / perp_norm
+
+    # Sample the perpendicular line over a wide range and find every
+    # True→False / False→True transition. Then pick the connected True
+    # segment closest to u0 (or containing it) and return that segment's
+    # left/right offsets. This handles the case where the fitted axis
+    # projects slightly outside the per-frame mask (common for thin
+    # poles where the pose-only axis fit can be off by 5–20 px).
+    step_px = 0.1
+    max_t = max(Hn, Wn)
+    n_steps = int(2 * max_t / step_px)
+    ts = (np.arange(n_steps) - n_steps / 2) * step_px
+    us = u0 + ts * perp_native[0]
+    vs = v0 + ts * perp_native[1]
+    ius = np.round(us).astype(int)
+    ivs = np.round(vs).astype(int)
+    in_img = (ius >= 0) & (ius < Wn) & (ivs >= 0) & (ivs < Hn)
+    sampled = np.zeros_like(ts, dtype=bool)
+    sampled[in_img] = mask[ivs[in_img], ius[in_img]]
+    if not sampled.any():
+        return None
+
+    # Find connected True segments.
+    diff = np.diff(sampled.astype(np.int8))
+    starts = np.where(diff == 1)[0] + 1
+    ends = np.where(diff == -1)[0] + 1
+    if sampled[0]:
+        starts = np.concatenate(([0], starts))
+    if sampled[-1]:
+        ends = np.concatenate((ends, [len(sampled)]))
+
+    # Only accept a segment that contains t=0 — i.e., the projected
+    # axis center is itself inside the mask. This guards against a
+    # bad axis fit accidentally picking up an unrelated mask segment
+    # (different blob, neighbouring object, etc.) and reporting a
+    # nonsense diameter.
+    best = None
+    for s, e in zip(starts, ends):
+        if e <= s:
+            continue
+        if ts[s] <= 0.0 <= ts[e - 1]:
+            best = (s, e)
+            break
+    if best is None:
+        return None
+    s, e = best
+    left_t = float(ts[s])
+    right_t = float(ts[e - 1])
+    if right_t <= left_t:
+        return None
+    # If the segment is on one side of t=0, both bounds will have the
+    # same sign — that's fine, we still want |right - left|. But to
+    # match the perp-distance formula's convention, treat (left, right)
+    # as the segment's two world-space edges and let the
+    # _line_to_axis_dist sum cover the rest.
+
+    left_native = uv_native + left_t * perp_native
+    right_native = uv_native + right_t * perp_native
+    left_pad = native_to_pad518(left_native, native_hw)
+    right_pad = native_to_pad518(right_native, native_hw)
+
+    # Diameter = perpendicular distance from the left-edge ray to the
+    # pole axis + same for the right-edge ray. For a true cylinder, each
+    # edge ray is tangent to the surface, so its perpendicular distance
+    # to the axis line equals the radius. This formulation is robust to
+    # camera-axis-parallel-to-pole-axis-plane geometry (the case the
+    # ray-plane intersection blows up on).
+    o_l, d_l = pixel_to_world_ray(left_pad, K, E)
+    o_r, d_r = pixel_to_world_ray(right_pad, K, E)
+
+    def _line_to_axis_dist(o, d):
+        cross = np.cross(axis_dir, d)
+        n = np.linalg.norm(cross)
+        if n < 1e-9:
+            return None
+        return abs(float((o - axis_point_local) @ cross)) / n
+
+    # Use P_h as a point on the axis (any axis point works for the
+    # perpendicular-distance formula).
+    axis_point_local = P_h_world
+    r_l = _line_to_axis_dist(o_l, d_l)
+    r_r = _line_to_axis_dist(o_r, d_r)
+    if r_l is None or r_r is None:
+        return None
+    return float(r_l + r_r)
+
+
+def measure_diameter(
+    masks: np.ndarray,
+    extrinsics: np.ndarray,
+    intrinsics: np.ndarray,
+    native_hw,
+    axis_point: np.ndarray,
+    axis_dir: np.ndarray,
+    pole_bottom_xyz: np.ndarray,
+    heights_m: list[float],
+    scale: float,
+) -> list[dict]:
+    """Measure pole diameter at each requested metric height above
+    `pole_bottom_xyz`, in metres. Returns a list of
+    `{height_m, diameter_m, n_frames_used}` dicts (one per requested
+    height). `diameter_m` is the per-frame median; None if no frame
+    yielded a valid measurement.
+
+    `scale` is metres-per-model-unit (from the GPS / fused scale
+    solver). Heights are converted to model units via `1/scale` to
+    locate the world point on the axis.
+    """
+    axis_dir = axis_dir / np.linalg.norm(axis_dir)
+    S = min(masks.shape[0], extrinsics.shape[0])
+    results = []
+    for h_m in heights_m:
+        h_units = float(h_m) / float(scale)
+        P_h = pole_bottom_xyz + axis_dir * h_units
+        diams = []
+        for i in range(S):
+            d = _diameter_at_one_frame(
+                masks[i], intrinsics[i], extrinsics[i],
+                native_hw, P_h, axis_dir,
+            )
+            if d is None:
+                continue
+            diams.append(d * scale)        # to metres
+        if diams:
+            results.append({
+                "height_m": float(h_m),
+                "diameter_m": float(np.median(diams)),
+                "n_frames_used": int(len(diams)),
+            })
+        else:
+            results.append({
+                "height_m": float(h_m),
+                "diameter_m": None,
+                "n_frames_used": 0,
+            })
+    return results
+
+
+def measure_attachments(
+    attachment_masks: np.ndarray,
+    attachment_names: list[str],
+    extrinsics: np.ndarray,
+    intrinsics: np.ndarray,
+    native_hw,
+    axis_point: np.ndarray,
+    axis_dir: np.ndarray,
+    pole_bottom_xyz: np.ndarray,
+    scale: float,
+) -> list[dict]:
+    """Measure each attachment's height above pole base.
+
+    `attachment_masks` is shape (N_attach, S, H, W) — same convention as
+    multi-object SAM output indexed by object id. For each attachment
+    object and each frame:
+      1. Take the mask centroid (mean of True pixel coords).
+      2. Convert native→pad pixel space, back-project to world ray.
+      3. Find the closest point on the pole axis to that ray
+         (project_ray_to_axis_t).
+      4. Convert axis-t to "metres above pole base":
+         height = scale * (t_attach - axis_dir · (pole_bottom - axis_point))
+    Take the median across frames as the attachment's height.
+
+    Returns one dict per attachment:
+        {name, height_m, n_frames_used, object_index}.
+    """
+    axis_dir = axis_dir / np.linalg.norm(axis_dir)
+    t_bottom = float(axis_dir @ (pole_bottom_xyz - axis_point))
+
+    N = attachment_masks.shape[0]
+    S = min(attachment_masks.shape[1], extrinsics.shape[0])
+    out: list[dict] = []
+    for ai in range(N):
+        ts = []
+        for i in range(S):
+            m = attachment_masks[ai, i]
+            if not m.any():
+                continue
+            ys, xs = np.where(m)
+            cx = float(xs.mean())
+            cy = float(ys.mean())
+            uv_pad = native_to_pad518(np.array([cx, cy]), native_hw)
+            ray_o, ray_d = pixel_to_world_ray(uv_pad, intrinsics[i],
+                                              extrinsics[i])
+            t = project_ray_to_axis_t(ray_o, ray_d, axis_point, axis_dir)
+            ts.append(t)
+        if not ts:
+            out.append({
+                "name": attachment_names[ai] if ai < len(attachment_names) else f"obj_{ai}",
+                "object_index": int(ai),
+                "height_m": None,
+                "n_frames_used": 0,
+            })
+            continue
+        t_med = float(np.median(ts))
+        height_m = float(scale) * (t_med - t_bottom)
+        out.append({
+            "name": attachment_names[ai] if ai < len(attachment_names) else f"obj_{ai}",
+            "object_index": int(ai),
+            "height_m": height_m,
+            "n_frames_used": int(len(ts)),
+        })
+    return out
+
+
 def fit_ground_normal_from_ply(ply_path: Path) -> np.ndarray | None:
     """RANSAC plane on the lowest-Y subset of the dense PLY. Returns
     the unit normal pointing roughly opposite the cameras (i.e., 'up'
@@ -284,6 +569,19 @@ def main():
     ap.add_argument("--bootstrap", type=int, default=0,
                     help="Bootstrap iterations for height/lean CI; "
                          "0 disables. 200 is a reasonable default.")
+    ap.add_argument("--diameter-at-heights", default="",
+                    help="Comma-separated heights in metres above the "
+                         "pole base, e.g. '1.5,3.0,5.0'. Each is "
+                         "measured against the fitted axis and added "
+                         "to the output JSON under 'diameters'. "
+                         "Requires --gps-scale (need metric scale).")
+    ap.add_argument("--attachment-objects", default="",
+                    help="Comma-separated object indices in the masks "
+                         "NPZ to treat as attachments (crossarm, "
+                         "transformer, wire, ...). Each becomes a row "
+                         "in the output JSON's 'attachments' list. "
+                         "Optional 'name=index' syntax: "
+                         "'crossarm=0,transformer=1'.")
     ap.add_argument("--output", default="pole_axis.json")
     args = ap.parse_args()
 
@@ -462,6 +760,73 @@ def main():
         except ValueError as e:
             print(f"  bootstrap failed: {e}")
 
+    attachments = None
+    if args.attachment_objects:
+        if metric_scale is None:
+            print("WARN: --attachment-objects requires --gps-scale "
+                  "(need metric scale to report heights in metres).")
+        else:
+            full = np.load(args.masks, allow_pickle=True)["masks"]
+            if full.ndim != 4:
+                print("WARN: masks NPZ has no object dimension; "
+                      "attachment-objects requires multi-object masks.")
+            else:
+                names, indices = [], []
+                for tok in args.attachment_objects.split(","):
+                    tok = tok.strip()
+                    if not tok:
+                        continue
+                    if "=" in tok:
+                        nm, ix = tok.split("=", 1)
+                        names.append(nm.strip())
+                        indices.append(int(ix))
+                    else:
+                        indices.append(int(tok))
+                        names.append(f"obj_{tok}")
+                sub = full[indices]
+                print(f"\nMeasuring attachments {names} (object indices "
+                      f"{indices}) ...")
+                attachments = measure_attachments(
+                    attachment_masks=sub,
+                    attachment_names=names,
+                    extrinsics=extrinsics,
+                    intrinsics=intrinsics,
+                    native_hw=tuple(int(x) for x in native_hw),
+                    axis_point=axis_point,
+                    axis_dir=signed_dir,
+                    pole_bottom_xyz=pole_bot,
+                    scale=metric_scale,
+                )
+                for a in attachments:
+                    if a["height_m"] is None:
+                        print(f"  {a['name']}: no usable frame")
+                    else:
+                        print(f"  {a['name']}: {a['height_m']:.2f} m "
+                              f"(n={a['n_frames_used']})")
+
+    diameters = None
+    if args.diameter_at_heights:
+        if metric_scale is None:
+            print("WARN: --diameter-at-heights requires --gps-scale "
+                  "(need metric scale to interpret heights).")
+        else:
+            heights = [float(h) for h in args.diameter_at_heights.split(",")
+                       if h.strip()]
+            print(f"\nMeasuring diameter at heights {heights} m ...")
+            diameters = measure_diameter(
+                masks=masks, extrinsics=extrinsics, intrinsics=intrinsics,
+                native_hw=tuple(int(x) for x in native_hw),
+                axis_point=axis_point, axis_dir=signed_dir,
+                pole_bottom_xyz=pole_bot,
+                heights_m=heights, scale=metric_scale,
+            )
+            for d in diameters:
+                if d["diameter_m"] is None:
+                    print(f"  h={d['height_m']:.1f} m: no usable frame")
+                else:
+                    print(f"  h={d['height_m']:.1f} m: {d['diameter_m']:.3f} m "
+                          f"(n={d['n_frames_used']})")
+
     out = {
         "pole_top_xyz": pole_top.tolist(),
         "pole_bottom_xyz": pole_bot.tolist(),
@@ -479,6 +844,8 @@ def main():
         "native_hw": [int(x) for x in native_hw],
         "pad_hw": [int(x) for x in pad_hw],
         "ci": ci,
+        "diameters": diameters,
+        "attachments": attachments,
     }
     Path(args.output).write_text(json.dumps(out, indent=2))
     print(f"\nWrote {args.output}")

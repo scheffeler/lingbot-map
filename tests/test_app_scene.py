@@ -132,6 +132,42 @@ def test_scene_includes_triangulation_when_present(client, temp_workspace):
     assert abs(body["metric_scale"] - 15.4) < 1e-9
 
 
+def test_scene_includes_diameters_and_attachments(client, temp_workspace):
+    """When triangulation.json carries `diameters` and `attachments`
+    (S2 + S3 outputs), the /scene endpoint surfaces them so the
+    in-browser viewer can render cylinders + attachment markers."""
+    _write_stub_poses(temp_workspace / "pole_001.poses.npz", n_frames=2)
+    (temp_workspace / "pole_001.triangulation.json").write_text(json.dumps({
+        "pole_top_xyz": [0.0, -0.3, 0.7],
+        "pole_bottom_xyz": [0.0, 0.3, 0.4],
+        "axis_direction": [0.0, -1.0, 0.0],
+        "height_m": 8.96,
+        "metric_scale": 15.4,
+        "diameters": [
+            {"height_m": 1.5, "diameter_m": 0.37, "n_frames_used": 4},
+            {"height_m": 5.0, "diameter_m": None, "n_frames_used": 0},
+        ],
+        "attachments": [
+            {"name": "crossarm", "object_index": 1,
+             "height_m": 7.2, "n_frames_used": 6},
+            {"name": "wire", "object_index": 2,
+             "height_m": None, "n_frames_used": 0},
+        ],
+    }))
+    cap_id = client.get("/api/captures").json()["captures"][0]["id"]
+    body = client.get(f"/api/captures/{cap_id}/scene").json()
+    assert "pole" in body
+    assert "diameters" in body["pole"]
+    # Only the populated entry should pass through; nulls are filtered.
+    assert len(body["pole"]["diameters"]) == 1
+    d = body["pole"]["diameters"][0]
+    assert d["height_m"] == 1.5 and abs(d["diameter_m"] - 0.37) < 1e-9
+    assert "attachments" in body["pole"]
+    assert len(body["pole"]["attachments"]) == 1
+    a = body["pole"]["attachments"][0]
+    assert a["name"] == "crossarm" and abs(a["height_m"] - 7.2) < 1e-9
+
+
 def test_scene_includes_ground_plane_when_ply_present(client, temp_workspace):
     _write_stub_poses(temp_workspace / "pole_001.poses.npz", n_frames=2)
     _write_stub_ply(temp_workspace / "pole_001.ply", n=600)

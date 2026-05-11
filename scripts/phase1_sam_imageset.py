@@ -38,6 +38,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp",
             ".heic", ".heif")
 
+def parse_text_prompts(text: str) -> list[str]:
+    """Split a comma-separated prompt list into individual SAM prompts.
+
+    Each prompt becomes a separate `add_prompt` call on the reference
+    frame, so SAM tracks one object track per matched class. Internal
+    spaces are preserved (so "electrical bracket" survives intact);
+    only commas delimit prompts.
+    """
+    parts = [p.strip() for p in text.split(",")]
+    parts = [p for p in parts if p]
+    if not parts:
+        raise ValueError(
+            f"No prompts in {text!r}; provide at least one comma-separated "
+            f"phrase, e.g. 'utility pole, crossarm'."
+        )
+    return parts
+
+
 app = modal.App("polevision-phase1-sam-imageset")
 
 image = (
@@ -155,19 +173,37 @@ def segment(
         )
         session_id = resp["session_id"]
 
-        resp = predictor.handle_request(
-            request=dict(
-                type="add_prompt",
-                session_id=session_id,
-                frame_index=ref_frame,
-                text=text_prompt,
+        prompts = parse_text_prompts(text_prompt)
+        log(f"Prompt list ({len(prompts)}): {prompts}")
+
+        ref_obj_ids: list = []
+        class_names: list[str] = []
+        # Per-prompt ref-frame masks, kept as a list of (mask, oid)
+        # tuples so we can stamp them after `masks` is allocated below.
+        ref_frame_masks: list[tuple] = []
+        for prompt in prompts:
+            resp = predictor.handle_request(
+                request=dict(
+                    type="add_prompt",
+                    session_id=session_id,
+                    frame_index=ref_frame,
+                    text=prompt,
+                )
             )
-        )
-        ref_obj_ids = resp["outputs"].get("out_obj_ids", [])
-        if hasattr(ref_obj_ids, "tolist"):
-            ref_obj_ids = ref_obj_ids.tolist()
-        log(f"Reference frame {ref_frame}: SAM detected "
-            f"{len(ref_obj_ids)} object(s); ids={ref_obj_ids}")
+            ids = resp["outputs"].get("out_obj_ids", [])
+            if hasattr(ids, "tolist"):
+                ids = ids.tolist()
+            log(f"  prompt {prompt!r}: matched {len(ids)} object(s); ids={ids}")
+            binary = resp["outputs"].get("out_binary_masks", None)
+            for k_in, oid in enumerate(ids):
+                if oid in ref_obj_ids:
+                    # SAM may return overlapping detections across prompts;
+                    # keep the first prompt that named it.
+                    continue
+                ref_obj_ids.append(oid)
+                class_names.append(prompt)
+                if binary is not None and k_in < len(binary):
+                    ref_frame_masks.append((oid, binary[k_in]))
 
         # Output: a fixed-size (N_obj, S, H, W) bool tensor where N_obj is
         # frozen at the reference-frame count. If propagation later loses
@@ -176,23 +212,21 @@ def segment(
         n_obj = len(ref_obj_ids)
         if n_obj == 0:
             raise RuntimeError(
-                f"No objects matched text prompt {text_prompt!r} on "
-                f"reference frame {ref_frame}. Try a different prompt or "
+                f"No objects matched any prompt in {prompts!r} on "
+                f"reference frame {ref_frame}. Try different prompts or "
                 f"a different reference frame."
             )
         masks = np.zeros((n_obj, S, H, W), dtype=bool)
         obj_present = np.zeros((n_obj, S), dtype=bool)
         # Stamp the reference frame's masks now (propagate_in_video may
-        # not re-yield them).
-        ref_binary = resp["outputs"].get("out_binary_masks", None)
-        if ref_binary is not None:
-            for k, oid in enumerate(ref_obj_ids):
-                m = ref_binary[k]
-                if m.shape != (H, W):
-                    m = cv2.resize(m.astype(np.uint8), (W, H),
-                                   interpolation=cv2.INTER_NEAREST).astype(bool)
-                masks[k, ref_frame] = m
-                obj_present[k, ref_frame] = bool(m.any())
+        # not re-yield them). Each entry is (oid, raw_mask).
+        for oid, m in ref_frame_masks:
+            k = ref_obj_ids.index(oid)
+            if m.shape != (H, W):
+                m = cv2.resize(m.astype(np.uint8), (W, H),
+                               interpolation=cv2.INTER_NEAREST).astype(bool)
+            masks[k, ref_frame] = m
+            obj_present[k, ref_frame] = bool(m.any())
 
         for stream_resp in predictor.handle_stream_request(
             request=dict(type="propagate_in_video", session_id=session_id),
@@ -233,6 +267,7 @@ def segment(
         masks_buf,
         masks=masks,
         obj_ids=np.array(ref_obj_ids, dtype=np.int64),
+        class_names=np.array(class_names),
         obj_present=obj_present,
         ref_frame=np.int32(ref_frame),
         text_prompt=np.array(text_prompt),

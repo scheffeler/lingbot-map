@@ -50,6 +50,34 @@ def _project(P: np.ndarray, R_c2w: np.ndarray, t_c2w: np.ndarray,
     return np.array([p[0] / p[2], p[1] / p[2]], dtype=np.float64), float(P_cam[2])
 
 
+def _rasterize_segment(mask: np.ndarray, p1: np.ndarray, p2: np.ndarray,
+                       thickness_px: float) -> None:
+    """Rasterize a thick line segment into `mask` (in-place).
+    Used to draw horizontal crossarm silhouettes at known pixel
+    endpoints. Implementation is a simple oversampled-step rasterizer:
+    walk along the segment in 0.5-px increments, set a small disk of
+    radius thickness/2 at each step."""
+    H, W = mask.shape
+    seg = p2 - p1
+    L = float(np.linalg.norm(seg))
+    if L < 1e-3:
+        return
+    n_steps = max(2, int(L * 2.0))
+    r = max(1, int(round(thickness_px / 2.0)))
+    for s in range(n_steps + 1):
+        t = s / float(n_steps)
+        cu = p1[0] + t * seg[0]
+        cv = p1[1] + t * seg[1]
+        u_lo = int(np.floor(cu - r))
+        u_hi = int(np.ceil(cu + r)) + 1
+        v_lo = int(np.floor(cv - r))
+        v_hi = int(np.ceil(cv + r)) + 1
+        u_lo, u_hi = max(0, u_lo), min(W, u_hi)
+        v_lo, v_hi = max(0, v_lo), min(H, v_hi)
+        if u_hi > u_lo and v_hi > v_lo:
+            mask[v_lo:v_hi, u_lo:u_hi] = True
+
+
 def make_pole_scene(
     height_m: float = 10.0,
     diameter_m: float = 0.30,
@@ -59,6 +87,7 @@ def make_pole_scene(
     image_size: int = 518,
     focal_px: float = 400.0,
     seed: int = 0,
+    attachments: list[dict] | None = None,
 ) -> dict:
     """Plant a vertical pole + ring of cameras and rasterize silhouette
     masks for each camera. See module docstring for conventions.
@@ -67,6 +96,17 @@ def make_pole_scene(
     pole-bottom pixel positions (and to the silhouette width); use 0
     for the bit-exact recovery test, larger values for robustness
     tests later in the suite.
+
+    `attachments`, if given, is a list of dicts each describing a
+    horizontal crossbar to additionally rasterize:
+        {"name": str, "height_m": float (above pole base, along +Y),
+         "length_m": float, "thickness_m": float (default 0.10),
+         "axis": "x" | "z" (world direction the bar runs along; defaults
+         to x)}
+    The output dict gains:
+        "attachment_masks": (N_attach, S, H, W) bool array
+        "attachment_names": list[str]
+        "attachment_gt_height_m": list[float]
     """
     rng = np.random.default_rng(seed)
     H = W = int(image_size)
@@ -84,6 +124,9 @@ def make_pole_scene(
     masks = np.zeros((n_cameras, H, W), dtype=bool)
     extrinsics = np.zeros((n_cameras, 3, 4), dtype=np.float64)
     intrinsics = np.zeros((n_cameras, 3, 3), dtype=np.float64)
+    atts = list(attachments or [])
+    n_att = len(atts)
+    attachment_masks = np.zeros((n_att, n_cameras, H, W), dtype=bool)
     # Per-frame ground-truth pixel projections — useful for tests that
     # need a "reference tap" (two pixel coords on a known 3D segment)
     # without re-deriving the projection math.
@@ -131,6 +174,25 @@ def make_pole_scene(
         proj_top_uv[i] = uv_top
         proj_bot_uv[i] = uv_bot
 
+        for ai, att in enumerate(atts):
+            length = float(att["length_m"])
+            thick_m = float(att.get("thickness_m", 0.10))
+            axis = att.get("axis", "x")
+            base_y = float(att["height_m"])
+            if axis == "x":
+                A = np.array([-length / 2.0, base_y, 0.0])
+                B = np.array([+length / 2.0, base_y, 0.0])
+            else:
+                A = np.array([0.0, base_y, -length / 2.0])
+                B = np.array([0.0, base_y, +length / 2.0])
+            uvA, depthA = _project(A, R_c2w, t_c2w, K)
+            uvB, depthB = _project(B, R_c2w, t_c2w, K)
+            if uvA is None or uvB is None:
+                continue
+            mid_d = 0.5 * (depthA + depthB)
+            thick_px = max(2.0, thick_m * focal_px / max(mid_d, 1e-3))
+            _rasterize_segment(attachment_masks[ai, i], uvA, uvB, thick_px)
+
     return {
         "masks": masks,
         "extrinsics": extrinsics,
@@ -143,4 +205,7 @@ def make_pole_scene(
         "gt_diameter_m": float(diameter_m),
         "gt_top_uv": proj_top_uv,        # (S, 2) — pole-top pixel per frame
         "gt_bot_uv": proj_bot_uv,        # (S, 2) — pole-bottom pixel per frame
+        "attachment_masks": attachment_masks,
+        "attachment_names": [a["name"] for a in atts],
+        "attachment_gt_height_m": [float(a["height_m"]) for a in atts],
     }

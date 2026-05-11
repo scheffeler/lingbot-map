@@ -70,6 +70,35 @@ def measurements_for(capture_name: str) -> list[dict]:
                 "unit": "deg",
                 "source": "lean vs mean camera-up",
             })
+        for d in (t.get("diameters") or []):
+            if d.get("diameter_m") is None:
+                continue
+            out.append({
+                "kind": f"diameter@{d['height_m']:.1f}m_m",
+                "value": float(d["diameter_m"]),
+                "sigma": None,
+                "unit": "m",
+                "source": "viewing-plane diameter @ height",
+                "info": {
+                    "height_m": d["height_m"],
+                    "n_frames_used": d.get("n_frames_used"),
+                },
+            })
+        for a in (t.get("attachments") or []):
+            if a.get("height_m") is None:
+                continue
+            out.append({
+                "kind": f"attachment_{a['name']}_height_m",
+                "value": float(a["height_m"]),
+                "sigma": None,
+                "unit": "m",
+                "source": "axis-projected attachment centroid",
+                "info": {
+                    "name": a.get("name"),
+                    "object_index": a.get("object_index"),
+                    "n_frames_used": a.get("n_frames_used"),
+                },
+            })
 
     scale_path = ws / f"{capture_name}.scale.json"
     if scale_path.exists():

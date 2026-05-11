@@ -96,6 +96,21 @@ def build_scene(capture_name: str, capture_id: int | None = None) -> dict | None
         except json.JSONDecodeError:
             t = {}
         if t:
+            diameters = [
+                {"height_m": d["height_m"],
+                 "diameter_m": d["diameter_m"],
+                 "n_frames_used": d.get("n_frames_used")}
+                for d in (t.get("diameters") or [])
+                if d.get("diameter_m") is not None
+            ]
+            attachments = [
+                {"name": a.get("name"),
+                 "object_index": a.get("object_index"),
+                 "height_m": a["height_m"],
+                 "n_frames_used": a.get("n_frames_used")}
+                for a in (t.get("attachments") or [])
+                if a.get("height_m") is not None
+            ]
             out["pole"] = {
                 "top": t.get("pole_top_xyz"),
                 "bottom": t.get("pole_bottom_xyz"),
@@ -106,6 +121,8 @@ def build_scene(capture_name: str, capture_id: int | None = None) -> dict | None
                 "axis_lean_cam_up_deg": t.get("axis_lean_cam_up_deg"),
                 "object_id": t.get("object_id"),
                 "ci": t.get("ci"),
+                "diameters": diameters,
+                "attachments": attachments,
             }
             if t.get("metric_scale") is not None:
                 out["metric_scale"] = float(t["metric_scale"])
